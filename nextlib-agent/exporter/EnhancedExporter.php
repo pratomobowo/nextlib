@@ -426,7 +426,7 @@ class EnhancedExporter
                 return false;
             }
 
-            $sentV2 = $this->sendPayload('/api/v2/aggregate', $compressedV2);
+            $sentV2 = $this->sendPayload('/api/v2/aggregate', $jsonV2, $compressedV2);
 
             if (!$sentV2['success']) {
                 $this->retryScheduler->enqueue($payloadV2, $sentV2['error']);
@@ -451,7 +451,7 @@ class EnhancedExporter
             return false;
         }
 
-        $sentV1 = $this->sendPayload('/api/v1/aggregate', $compressedV1);
+        $sentV1 = $this->sendPayload('/api/v1/aggregate', $jsonV1, $compressedV1);
 
         if (!$sentV1['success']) {
             $this->retryScheduler->enqueue($payloadV1, $sentV1['error']);
@@ -516,7 +516,7 @@ class EnhancedExporter
                 continue;
             }
 
-            $result = $this->sendPayload($endpoint, $compressed);
+            $result = $this->sendPayload($endpoint, $json, $compressed);
 
             if ($result['success']) {
                 $this->retryScheduler->markSuccess($index);
@@ -543,7 +543,22 @@ class EnhancedExporter
      * @param string $compressed Gzip-compressed JSON payload
      * @return array{success: bool, error: string} Result of the send attempt
      */
-    private function sendPayload(string $endpoint, string $compressed): array
+    /**
+     * Build the required headers (Content-Type, Content-Encoding, X-NextLib-Token)
+     * and POST the compressed payload to the cloud.
+     *
+     * IMPORTANT: the HMAC token is computed over $rawJson (the logical payload),
+     * NOT over $compressed. The cloud validates the signature against the
+     * decompressed body — signing compressed bytes would break because the agent
+     * and cloud would be signing/verifying different byte sequences. This also
+     * keeps signing consistent with the uncompressed handshake endpoint.
+     *
+     * @param string $endpoint   API path, e.g. '/api/v1/aggregate'
+     * @param string $rawJson    The uncompressed JSON payload (what is signed).
+     * @param string $compressed The gzip-compressed payload (what is sent).
+     * @return array{success: bool, error: string}
+     */
+    private function sendPayload(string $endpoint, string $rawJson, string $compressed): array
     {
         if ($compressed === '') {
             return array('success' => false, 'error' => 'Empty compressed payload');
@@ -554,13 +569,22 @@ class EnhancedExporter
             return array('success' => false, 'error' => 'api_secret is not configured');
         }
 
+        // Sign the logical (decompressed) JSON payload so the cloud can verify
+        // after gunzipping. See /api/v1/aggregate route.ts line ~139.
         $signer = new \NextLibAgent\Lib\HmacSigner($apiSecret);
-        $token  = $signer->generateToken($compressed);
+        $token  = $signer->generateToken($rawJson);
+
+        // Cloud looks up the tenant by SHA-256(apiSecret) via the
+        // X-NextLib-Secret-Hash header (see authenticateAgent in tenant-guard.ts).
+        // The HMAC token only validates request integrity — it cannot identify
+        // the tenant on its own.
+        $secretHash = hash('sha256', $apiSecret);
 
         $headers = array(
             'Content-Type: application/octet-stream',
             'Content-Encoding: gzip',
             'X-NextLib-Token: ' . $token,
+            'X-NextLib-Secret-Hash: ' . $secretHash,
         );
 
         $response = $this->httpClient->post($endpoint, $compressed, $headers);

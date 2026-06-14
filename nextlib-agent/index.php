@@ -35,11 +35,12 @@ $plugin_config = array(
 // Load environment variables from .env if available. SLiMS does not bootstrap
 // the plugin's composer autoloader, so we require it explicitly (best-effort:
 // the plugin still functions without it if env vars are set at the SAPI level).
+// createUnsafeImmutable() also calls putenv() so getenv() in config.php works.
 $nextlibAutoload = __DIR__ . '/vendor/autoload.php';
 if (is_readable($nextlibAutoload)) {
     require_once $nextlibAutoload;
     if (class_exists('Dotenv\\Dotenv')) {
-        Dotenv\Dotenv::createImmutable(__DIR__)->safeLoad();
+        Dotenv\Dotenv::createUnsafeImmutable(__DIR__)->safeLoad();
     }
 }
 

@@ -27,8 +27,9 @@ if (file_exists($autoloadPath)) {
 }
 
 // Load environment variables from .env (no-op if the file or loader is absent).
+// createUnsafeImmutable() also calls putenv() so getenv() in config.php works.
 if (class_exists('Dotenv\\Dotenv')) {
-    Dotenv\Dotenv::createImmutable(__DIR__)->safeLoad();
+    Dotenv\Dotenv::createUnsafeImmutable(__DIR__)->safeLoad();
 }
 
 // Load configuration
