@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1781251230912,
+      "tag": "0000_init_tenants_and_daily_stats",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781398184372,
+      "tag": "0001_complex_vampiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781400920901,
+      "tag": "0002_deep_blonde_phantom",
+      "breakpoints": true
+    }
+  ]
+}

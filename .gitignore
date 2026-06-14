@@ -1,0 +1,83 @@
+# =============================================================================
+# NextLib Platform — root .gitignore
+# =============================================================================
+# Monorepo: nextlib-cloud (Next.js) + nextlib-agent (PHP) + infra.
+# Sub-project .gitignore files (nextlib-cloud/.gitignore, nextlib-agent/.gitignore)
+# handle project-specific artifacts; this file catches everything else at root.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Secrets — NEVER commit
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+# Local-only docker-compose overrides (contain real AES keys / webhook secrets)
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# -----------------------------------------------------------------------------
+# Local-only artifacts (test fixtures, runtime state, SLiMS clones for testing)
+# -----------------------------------------------------------------------------
+# SLiMS instance used locally to exercise the agent API (not part of the product)
+opac-*/
+
+# AI tooling scratch space (Kiro IDE specs — internal, not product docs)
+.kiro/
+
+# NextLib-Agent runtime state (queue, resume markers) — never commit
+nextlib-agent/queue/*.json
+nextlib-agent/queue/*.tmp.*
+nextlib-agent/backfill_state.json
+nextlib-agent/last_export.json
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+node_modules/
+vendor/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# -----------------------------------------------------------------------------
+# Build outputs / caches
+# -----------------------------------------------------------------------------
+.next/
+.next/cache/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# PHPUnit / Composer caches
+.phpunit.result.cache
+.phpunit.cache/
+
+# Vercel / Coolify local state
+.vercel/
+.coolify/
+
+# -----------------------------------------------------------------------------
+# IDE / editor / OS
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swp
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

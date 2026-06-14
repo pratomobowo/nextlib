@@ -1,0 +1,39 @@
+# =============================================================================
+# Local-only docker-compose overrides.
+# =============================================================================
+# Copy this file to docker-compose.override.yml and fill in real values.
+# docker-compose.override.yml is gitignored — it is never committed.
+#
+# Why this exists:
+#   docker-compose.yml reads secrets from environment variables (${VAR_NAME}).
+#   Docker Compose automatically merges docker-compose.override.yml on top of
+#   the base file, so this is the convenient place to inject local secrets
+#   without exporting shell env vars every time.
+#
+# Generate a fresh AES key: openssl rand -hex 32
+# Generate a webhook secret: openssl rand -hex 24
+# =============================================================================
+
+services:
+  db:
+    environment:
+      POSTGRES_USER: pratomobowo
+      POSTGRES_DB: nextlib_cloud
+
+  gowa:
+    environment:
+      - WHATSAPP_WEBHOOK_SECRET=REPLACE_WITH_openssl_rand_hex_24
+
+  app:
+    environment:
+      - AES_256_ENCRYPTION_KEY=REPLACE_WITH_openssl_rand_hex_32
+      - WHATSAPP_WEBHOOK_SECRET=REPLACE_WITH_openssl_rand_hex_24
+      - NEXTAUTH_SECRET=REPLACE_WITH_openssl_rand_hex_32
+      # Optional AI provider key (leave empty to use keyword fallback)
+      - AI_API_KEY=
+
+  worker:
+    environment:
+      - AES_256_ENCRYPTION_KEY=REPLACE_WITH_openssl_rand_hex_32
+      - WHATSAPP_WEBHOOK_SECRET=REPLACE_WITH_openssl_rand_hex_24
+      - AI_API_KEY=

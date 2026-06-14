@@ -1,0 +1,122 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { tenants, users } from "@/lib/db/schema";
+import { hashPassword } from "@/lib/auth/password";
+import { encrypt } from "@/lib/crypto";
+import { eq } from "drizzle-orm";
+import { createHash } from "crypto";
+
+/**
+ * GET /api/v1/auth/seed
+ *
+ * Dev-only seeder route to populate the database with default tenants and users.
+ */
+export async function GET() {
+  // Allow seeding only in development or if explicitly enabled
+  const isDev = process.env.NODE_ENV === "development" || process.env.APP_DEBUG === "true";
+  if (!isDev) {
+    return NextResponse.json(
+      { success: false, error: "Not allowed in production" },
+      { status: 403 }
+    );
+  }
+
+  try {
+    // 1. Ensure a default tenant exists
+    let defaultTenant = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.slug, "universitas-nextlib"))
+      .limit(1)
+      .then((res) => res[0]);
+
+    if (!defaultTenant) {
+      // Same storage contract as POST /tenants: tokenHash = SHA-256(secret),
+      // and both the secret and the SLiMS base URL are AES-256-GCM encrypted.
+      const encryptionKey = process.env.AES_256_ENCRYPTION_KEY;
+      if (!encryptionKey) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "AES_256_ENCRYPTION_KEY is not set. Configure it before seeding.",
+          },
+          { status: 500 }
+        );
+      }
+
+      const apiSecret = "default_slims_api_secret_key_123456";
+      const tokenHash = createHash("sha256").update(apiSecret).digest("hex");
+      const slimsBaseUrl = "http://localhost:8080"; // standard local SLiMS
+
+      const [newTenant] = await db
+        .insert(tenants)
+        .values({
+          name: "Universitas NextLib",
+          slug: "universitas-nextlib",
+          slimsBaseUrl: encrypt(slimsBaseUrl, encryptionKey),
+          apiSecretEncrypted: encrypt(apiSecret, encryptionKey),
+          tokenHash: tokenHash,
+          status: "connected",
+        })
+        .returning();
+
+      defaultTenant = newTenant;
+    }
+
+    // 2. Check and seed default users
+    const existingUsers = await db.select().from(users).limit(1);
+    
+    if (existingUsers.length === 0) {
+      // Seed Super Admin
+      await db.insert(users).values({
+        email: "admin@nextlib.cloud",
+        name: "SaaS Super Admin",
+        passwordHash: hashPassword("admin"),
+        role: "super_admin",
+        tenantId: null, // super_admin is not bound to a tenant
+      });
+
+      // Seed Tenant Admin
+      await db.insert(users).values({
+        email: "library@nextlib.cloud",
+        name: "Library Admin",
+        passwordHash: hashPassword("library"),
+        role: "tenant_admin",
+        tenantId: defaultTenant.id,
+      });
+
+      // Seed Librarian
+      await db.insert(users).values({
+        email: "librarian@nextlib.cloud",
+        name: "Assistant Librarian",
+        passwordHash: hashPassword("librarian"),
+        role: "librarian",
+        tenantId: defaultTenant.id,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "Database successfully seeded!",
+        credentials: {
+          super_admin: { email: "admin@nextlib.cloud", password: "admin" },
+          tenant_admin: { email: "library@nextlib.cloud", password: "library" },
+          librarian: { email: "librarian@nextlib.cloud", password: "librarian" },
+          // Dev convenience: the agent API secret to use for the seeded tenant.
+          tenant_api_secret: "default_slims_api_secret_key_123456",
+        },
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Database already has users. No seeding required.",
+    });
+  } catch (error) {
+    console.error("[Seeder] Seeding error:", error);
+    return NextResponse.json(
+      { success: false, error: "Terjadi kesalahan saat seeding: " + (error instanceof Error ? error.message : String(error)) },
+      { status: 500 }
+    );
+  }
+}

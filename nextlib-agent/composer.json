@@ -1,0 +1,43 @@
+{
+    "name": "nextlib/agent",
+    "description": "NextLib-Agent: PHP plugin for SLiMS integration with NextLib-Cloud SaaS",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5"
+    },
+    "autoload": {
+        "files": [
+            "lib/HmacSigner.php",
+            "lib/HttpClient.php",
+            "lib/HandshakePing.php",
+            "middleware/TokenValidator.php",
+            "endpoints/SearchBook.php",
+            "endpoints/MemberCheck.php",
+            "endpoints/ExtendBook.php",
+            "endpoints/AgentCommand.php",
+            "endpoints/Health.php",
+            "exporter/AggregateExporter.php",
+            "exporter/MetricsCollector.php",
+            "exporter/RetryScheduler.php",
+            "exporter/BackfillEngine.php",
+            "exporter/AnomalyTagger.php",
+            "exporter/EnhancedExporter.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "NextLib\\Agent\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit --configuration phpunit.xml"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

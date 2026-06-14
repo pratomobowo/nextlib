@@ -1,0 +1,23 @@
+# Secrets / local environment
+.env
+.env.local
+.env.*.local
+
+# Composer
+vendor/
+composer.lock
+
+# PHPUnit
+.phpunit.result.cache
+
+# Runtime state (queue + backfill resume) — must never be committed
+queue/pending_exports.json
+queue/*.tmp.*
+backfill_state.json
+last_export.json
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/

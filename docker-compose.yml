@@ -1,0 +1,127 @@
+# =============================================================================
+# NextLib Platform — base docker-compose
+# =============================================================================
+# Secrets and machine-specific values live in docker-compose.override.yml
+# (gitignored) or environment variables. Never hardcode secrets here — this
+# file is committed publicly.
+#
+# Required environment variables (provide via .env at repo root,
+# docker-compose.override.yml, or your orchestrator / Coolify env):
+#   AES_256_ENCRYPTION_KEY   — 64-hex-char AES-256 key (openssl rand -hex 32)
+#   WHATSAPP_WEBHOOK_SECRET  — shared HMAC secret with the Gowa engine
+#   AI_API_KEY               — OpenAI-compatible provider key (optional)
+#
+# Optional (have sensible defaults):
+#   AI_BASE_URL (default https://api.deepseek.com)
+#   AI_MODEL    (default deepseek-chat)
+# =============================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: nextlib_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pratomobowo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-nextlib_cloud}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nextlib_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: nextlib_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - nextlib_net
+
+  gowa:
+    image: aldinokemal2104/go-whatsapp-web-multidevice
+    container_name: nextlib_gowa
+    restart: always
+    ports:
+      - "3010:3000"
+    volumes:
+      - gowa_storage:/app/storages
+    environment:
+      - APP_PORT=3000
+      - APP_DEBUG=true
+      - APP_HOST=0.0.0.0
+      - WHATSAPP_WEBHOOK=http://app:3000/api/v1/whatsapp/webhook
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET}
+    command: rest
+    networks:
+      - nextlib_net
+
+  app:
+    build:
+      context: ./nextlib-cloud
+      target: development
+    container_name: nextlib_app
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./nextlib-cloud:/app
+      - /app/node_modules
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-pratomobowo}@db:5432/${POSTGRES_DB:-nextlib_cloud}
+      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-secret-for-local-development}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_API_URL=http://gowa:3000
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-deepseek-chat}
+    depends_on:
+      - db
+      - redis
+      - gowa
+    networks:
+      - nextlib_net
+
+  # WhatsApp message worker (BullMQ consumer). Long-lived process that pulls
+  # incoming messages off the Redis queue and runs the AI intent pipeline.
+  # Shares the same image/env as `app` but targets the `worker` Dockerfile
+  # stage (runs src/worker.ts via tsx instead of `next start`).
+  worker:
+    build:
+      context: ./nextlib-cloud
+      target: worker
+    container_name: nextlib_worker
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-pratomobowo}@db:5432/${POSTGRES_DB:-nextlib_cloud}
+      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY}
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_API_URL=http://gowa:3000
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-deepseek-chat}
+    depends_on:
+      - db
+      - redis
+      - gowa
+    networks:
+      - nextlib_net
+
+volumes:
+  postgres_data:
+  redis_data:
+  gowa_storage:
+
+networks:
+  nextlib_net:
+    driver: bridge

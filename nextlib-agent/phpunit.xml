@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.5/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         verbose="true"
+         failOnRisky="true"
+         failOnWarning="true"
+         beStrictAboutOutputDuringTests="true">
+    <testsuites>
+        <testsuite name="NextLib Agent Test Suite">
+            <directory suffix="Test.php">tests</directory>
+        </testsuite>
+    </testsuites>
+
+    <coverage processUncoveredFiles="true">
+        <include>
+            <directory suffix=".php">lib</directory>
+            <directory suffix=".php">middleware</directory>
+            <directory suffix=".php">endpoints</directory>
+            <directory suffix=".php">exporter</directory>
+        </include>
+    </coverage>
+
+    <php>
+        <const name="INDEX_AUTH" value="1"/>
+    </php>
+</phpunit>
