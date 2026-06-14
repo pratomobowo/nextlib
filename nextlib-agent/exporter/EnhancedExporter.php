@@ -595,6 +595,14 @@ class EnhancedExporter
             return array('success' => true, 'error' => '');
         }
 
+        // 409 DUPLICATE_ENTRY means the (tenant_id, date) row already exists.
+        // For an idempotent exporter this is a success — the data is present,
+        // we just don't overwrite. Without this, backfill would endlessly retry
+        // any date that was already imported.
+        if ($status === 409) {
+            return array('success' => true, 'error' => '');
+        }
+
         $errorDetail = isset($response['error']) && $response['error'] !== null
             ? $response['error']
             : 'HTTP ' . $status;
