@@ -3,15 +3,17 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, Building2, Database, LayoutDashboard, MessageCircle, Plug, Settings } from "lucide-react"
+import { BarChart3, BookMarked, Building2, Database, LayoutDashboard, MessageCircle, Plug, Settings, BookOpen } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -21,14 +23,22 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-const navItems = [
-  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
-  { title: "Tenants", href: "/tenants", icon: Building2 },
-  { title: "Koneksi", href: "/koneksi", icon: Plug },
-  { title: "Data Management", href: "/data-management", icon: Database },
-  { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
-  { title: "Settings", href: "/settings", icon: Settings },
+type NavItem = {
+  title: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  /** Which section this item belongs to — controls grouping. */
+  section: "main" | "system"
+}
+
+const navItems: NavItem[] = [
+  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, section: "main" },
+  { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3, section: "main" },
+  { title: "Data Management", href: "/data-management", icon: Database, section: "main" },
+  { title: "Koneksi", href: "/koneksi", icon: Plug, section: "main" },
+  { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle, section: "system" },
+  { title: "Tenants", href: "/tenants", icon: Building2, section: "system" },
+  { title: "Settings", href: "/settings", icon: Settings, section: "system" },
 ]
 
 export function AppSidebar() {
@@ -53,28 +63,24 @@ export function AppSidebar() {
     loadUser()
   }, [])
 
+  // Role-based visibility filter (unchanged logic)
   const filteredNavItems = navItems.filter((item) => {
-    // Hide administrative pages until user role is loaded to prevent flashes of unauthorized pages
     if (!user) {
       if (item.href === "/tenants" || item.href === "/koneksi" || item.href === "/data-management") return false
       return true
     }
-
     if (user.role === "super_admin") {
-      // Super admin ONLY manages the SaaS platform (Dashboard and Tenants)
       return item.href === "/dashboard" || item.href === "/tenants"
     }
-
-    // Tenant scoped users (tenant_admin and librarian)
     if (item.href === "/tenants") return false
-    if (item.href === "/koneksi") {
-      return user.role === "tenant_admin"
-    }
-    if (item.href === "/data-management") {
-      return user.role === "tenant_admin"
-    }
+    if (item.href === "/koneksi") return user.role === "tenant_admin"
+    if (item.href === "/data-management") return user.role === "tenant_admin"
     return true
   })
+
+  const mainItems = filteredNavItems.filter((i) => i.section === "main")
+  const systemItems = filteredNavItems.filter((i) => i.section === "system")
+  const isCollapsed = state === "collapsed"
 
   const initials = user
     ? user.name
@@ -85,64 +91,167 @@ export function AppSidebar() {
         .toUpperCase()
     : "NL"
 
+  const roleBadgeVariant: Record<string, "default" | "secondary" | "outline"> = {
+    super_admin: "default",
+    tenant_admin: "secondary",
+    librarian: "outline",
+  }
+
+  const roleLabel: Record<string, string> = {
+    super_admin: "Super Admin",
+    tenant_admin: "Tenant Admin",
+    librarian: "Librarian",
+  }
+
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-1">
-          <span className="text-sm font-semibold">NextLib</span>
+      {/* ─── Brand Header ─────────────────────────────────────────── */}
+      <SidebarHeader className="pb-0">
+        <div
+          className={cn(
+            "flex items-center gap-2.5 rounded-lg px-2.5 py-2.5",
+            isCollapsed && "justify-center px-0"
+          )}
+        >
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+            <BookOpen className="size-4" />
+          </div>
+          {!isCollapsed && (
+            <div className="flex flex-col leading-tight">
+              <span className="text-sm font-bold tracking-tight">NextLib</span>
+              <span className="text-[10px] text-muted-foreground">Library Platform</span>
+            </div>
+          )}
         </div>
       </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {filteredNavItems.map((item) => {
-                const isActive =
-                  item.href === "/dashboard"
-                    ? pathname === "/dashboard"
-                    : pathname.startsWith(item.href)
 
-                return (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      tooltip={item.title}
-                      render={<Link href={item.href} />}
-                    >
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      {/* ─── Navigation ───────────────────────────────────────────── */}
+      <SidebarContent className="gap-1 px-2 py-3">
+        {mainItems.length > 0 && (
+          <SidebarGroup className="py-0">
+            {!isCollapsed && <SidebarGroupLabel className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Menu Utama</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-1">
+                {mainItems.map((item) => (
+                  <SidebarNavItem
+                    key={item.href}
+                    item={item}
+                    pathname={pathname}
+                    isCollapsed={isCollapsed}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {systemItems.length > 0 && (
+          <SidebarGroup className="py-0 mt-3">
+            {!isCollapsed && <SidebarGroupLabel className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Sistem</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-1">
+                {systemItems.map((item) => (
+                  <SidebarNavItem
+                    key={item.href}
+                    item={item}
+                    pathname={pathname}
+                    isCollapsed={isCollapsed}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
-      <SidebarFooter className="border-t p-2">
-        {user && (
-          <div className={cn(
-            "flex items-center gap-2 rounded-md p-1.5 transition-all",
-            state === "collapsed" ? "justify-center" : "px-2"
-          )}>
-            <Avatar size="sm">
-              <AvatarFallback>{initials}</AvatarFallback>
+      {/* ─── User Footer ──────────────────────────────────────────── */}
+      <SidebarFooter className="border-t border-sidebar-border p-2">
+        {user ? (
+          <div
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg p-2 transition-colors hover:bg-sidebar-accent",
+              isCollapsed && "justify-center"
+            )}
+          >
+            <Avatar className="size-8">
+              <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                {initials}
+              </AvatarFallback>
             </Avatar>
-            {state !== "collapsed" && (
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-xs font-semibold truncate text-foreground">
-                  {user.name}
-                </span>
-                <span className="text-[10px] text-muted-foreground truncate uppercase font-medium">
-                  {user.role.replace("_", " ")}
-                </span>
+            {!isCollapsed && (
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-col leading-tight">
+                  <span className="truncate text-xs font-semibold text-sidebar-foreground">
+                    {user.name}
+                  </span>
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    {user.email}
+                  </span>
+                </div>
+                <Badge variant={roleBadgeVariant[user.role] ?? "outline"} className="shrink-0 text-[9px] px-1.5 py-0 h-4">
+                  {roleLabel[user.role] ?? user.role}
+                </Badge>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className={cn("flex items-center gap-2.5 p-2", isCollapsed && "justify-center")}>
+            <Avatar className="size-8">
+              <AvatarFallback className="bg-muted text-xs">NL</AvatarFallback>
+            </Avatar>
+            {!isCollapsed && (
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold text-muted-foreground">Memuat…</span>
               </div>
             )}
           </div>
         )}
       </SidebarFooter>
+
       <SidebarRail />
     </Sidebar>
+  )
+}
+
+/**
+ * Individual nav item with active state + hover polish.
+ * Extracted so the active indicator can be rendered cleanly.
+ */
+function SidebarNavItem({
+  item,
+  pathname,
+  isCollapsed,
+}: {
+  item: NavItem
+  pathname: string
+  isCollapsed: boolean
+}) {
+  const isActive =
+    item.href === "/dashboard"
+      ? pathname === "/dashboard"
+      : pathname.startsWith(item.href)
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={isActive}
+        tooltip={item.title}
+        render={<Link href={item.href} />}
+        className={cn(
+          // Comfortable vertical padding for a less cramped feel.
+          "h-10 px-2.5 text-sm transition-all duration-150",
+          // Subtle scale-in on hover for tactile feedback.
+          "hover:translate-x-0.5",
+          // Active state: slightly bolder + left accent bar via border-l.
+          isActive &&
+            "bg-sidebar-accent font-semibold text-sidebar-accent-foreground border-l-2 border-primary rounded-l-none",
+          // Make the icon inherit accent color when active.
+          isActive && "[&_svg]:text-primary"
+        )}
+      >
+        <item.icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
+        <span className="truncate">{item.title}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   )
 }
