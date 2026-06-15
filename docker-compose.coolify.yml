@@ -127,6 +127,13 @@ services:
       - NODE_ENV=production
       # Only the web server migrates; the worker waits for the DB and skips.
       - RUN_MIGRATIONS=1
+      # Pin port + hostname explicitly. Dockerfile already sets these via
+      # ENV PORT 3000 / ENV HOSTNAME "0.0.0.0", but Coolify's build-time.env
+      # generator has been observed injecting PORT=5432 (likely auto-derived
+      # from DATABASE_URL) which made next start bind to the Postgres port
+      # instead of 3000 — breaking the Traefik proxy.
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
     depends_on:
       db:
         condition: service_healthy
