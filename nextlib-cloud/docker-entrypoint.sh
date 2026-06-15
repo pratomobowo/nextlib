@@ -20,9 +20,16 @@ set -e
 # drizzle-kit + pg need the server accepting connections before they connect.
 # Retry up to ~30s so boot ordering with the `db` service is not fatal.
 if [ -n "$DATABASE_URL" ]; then
-  HOST=$(printf '%s' "$DATABASE_URL" | sed -nE 's|^postgresql://[^@]*@([^:/]+).*|\1|p')
-  PORT=$(printf '%s' "$DATABASE_URL" | sed -nE 's|^postgresql://[^@]*@[^:/]+:([0-9]+).*|\1|p')
-  PORT=${PORT:-5432}
+  # Parse postgresql://user:password@host:port/dbname using shell expansion so
+  # passwords containing @, :, #, etc. don't break host extraction (the previous
+  # sed regex stopped at the first @, which mangled URLs whose password had
+  # special chars — e.g. "p@ss#1234" produced host="#1234@db").
+  REST="${DATABASE_URL#postgresql://}"
+  REST="${REST##*@}"      # strip user:password@ (keep last @)
+  HOST="${REST%%:*}"      # everything up to the first ':'
+  REST="${REST#*:}"
+  PORT="${REST%%/*}"      # everything up to the first '/'
+  PORT="${PORT:-5432}"
 
   echo "[entrypoint] Waiting for database at ${HOST}:${PORT}..."
   i=0
