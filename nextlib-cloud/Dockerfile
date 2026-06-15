@@ -37,6 +37,9 @@ COPY --from=builder /app/public ./public
 # on boot (docker-entrypoint.sh runs `drizzle-kit migrate` before next start).
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+# Operational CLI scripts (db:seed, seed-analytics, recompute-anomalies,
+# sync-from-slims) — invoked via `docker exec <app> npm run <script>`.
+COPY --from=builder /app/scripts ./scripts
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3000
