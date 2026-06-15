@@ -6,6 +6,7 @@ import { db } from "@/lib/db"
 import { tenants } from "@/lib/db/schema"
 import { getSessionUser } from "@/lib/auth/session"
 import { AnalyticsPanel } from "@/components/analytics/analytics-panel"
+import { AnalyticsTabs } from "@/components/analytics/analytics-tabs"
 
 export default async function AnalyticsPage() {
   const sessionContext = await getSessionUser()
@@ -32,13 +33,16 @@ export default async function AnalyticsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
         <p className="text-muted-foreground">
-          Statistik pengunjung, peminjaman, dan pengembalian
+          Statistik lengkap perpustakaan: pengunjung, koleksi, peminjaman, dan aktivitas member
         </p>
       </div>
 
-      <Suspense fallback={<AnalyticsPanelSkeleton />}>
-        <AnalyticsPanel tenants={allTenants} />
-      </Suspense>
+      {/* Tabbed analytics: Overview (visitor/loan/return trends) + 4 detail tabs */}
+      <AnalyticsTabs tenants={allTenants} overviewPanel={
+        <Suspense fallback={<AnalyticsPanelSkeleton />}>
+          <AnalyticsPanel tenants={allTenants} />
+        </Suspense>
+      } />
     </div>
   )
 }

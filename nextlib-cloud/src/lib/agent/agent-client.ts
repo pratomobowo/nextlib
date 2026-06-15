@@ -135,3 +135,174 @@ export async function triggerAgentExport(
     };
   }
 }
+
+/**
+ * Per-call timeout for ad-hoc agent analytics queries. Shorter than the
+ * export timeout because these are user-facing dashboard requests.
+ */
+const AGENT_QUERY_TIMEOUT_MS = 15_000;
+
+/**
+ * Result of an ad-hoc agent query (e.g. top-books, dead-stock).
+ */
+export interface AgentQueryResult<T = unknown> {
+  success: boolean;
+  status: number;
+  data?: T;
+  error?: string;
+}
+
+/**
+ * Send a signed POST to an analytics endpoint on the agent and return the
+ * parsed JSON response. Used by the cloud's analytics routes to fetch detail
+ * data (top books, dead stock, collection stats, member activity) on-demand.
+ *
+ * Unlike `triggerAgentExport`, this returns the agent's JSON payload rather
+ * than just a success/failure flag.
+ *
+ * @param tenant        Tenant row with encrypted credentials
+ * @param path          Endpoint path under /api/v1/nextlib/, e.g. "top-books"
+ * @param params        Request body (JSON-serialisable)
+ * @param encryptionKey AES key for decrypting tenant credentials
+ */
+export async function queryAgent<T = unknown>(
+  tenant: Pick<Tenant, "slimsBaseUrl" | "apiSecretEncrypted">,
+  path: string,
+  params: Record<string, unknown>,
+  encryptionKey: string
+): Promise<AgentQueryResult<T>> {
+  let slimsBaseUrl: string;
+  let apiSecret: string;
+  try {
+    slimsBaseUrl = decrypt(tenant.slimsBaseUrl, encryptionKey);
+    apiSecret = decrypt(tenant.apiSecretEncrypted, encryptionKey);
+  } catch {
+    return {
+      success: false,
+      status: 0,
+      error: "Failed to decrypt tenant credentials",
+    };
+  }
+
+  const body = JSON.stringify(params);
+  const token = generateToken(body, apiSecret);
+  const secretHash = createHash("sha256").update(apiSecret).digest("hex");
+
+  // Normalise the path: callers may pass "top-books" or "/api/v1/nextlib/top-books".
+  const normalizedPath = path.startsWith("/api/v1/nextlib/")
+    ? path
+    : `/api/v1/nextlib/${path.replace(/^\/+/, "")}`;
+  const targetUrl = `${slimsBaseUrl.replace(/\/+$/, "")}${normalizedPath}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AGENT_QUERY_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-NextLib-Token": token,
+        "X-NextLib-Secret-Hash": secretHash,
+      },
+      body,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.status >= 200 && response.status < 300) {
+      const data = (await response.json()) as T;
+      return { success: true, status: response.status, data };
+    }
+
+    // Try to surface the agent's error message.
+    let agentError = `Agent returned HTTP ${response.status}`;
+    try {
+      const errBody = (await response.json()) as { message?: string };
+      if (errBody.message) agentError = errBody.message;
+    } catch {
+      // not JSON — keep the generic message
+    }
+    return { success: false, status: response.status, error: agentError };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      return {
+        success: false,
+        status: 0,
+        error: `Agent did not respond within ${AGENT_QUERY_TIMEOUT_MS / 1000}s`,
+      };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      status: 0,
+      error: `Failed to reach agent: ${message}`,
+    };
+  }
+}
+
+/**
+ * Shared helper for cloud route handlers: resolve a tenant's credentials,
+ * call an agent analytics endpoint, and return a uniform JSON response.
+ *
+ * - 401 if not authenticated
+ * - 403 if the user has no tenant
+ * - 503 if the agent is unreachable (with a friendly fallback message)
+ * - 200 with the agent's payload otherwise
+ */
+export async function callAgentAnalytics(
+  tenantId: string,
+  path: string,
+  params: Record<string, unknown>
+): Promise<{ status: number; body: unknown }> {
+  const encryptionKey = process.env.AES_256_ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    return {
+      status: 500,
+      body: {
+        error: true,
+        code: "SERVER_ERROR",
+        message: "Encryption key not configured",
+      },
+    };
+  }
+
+  // Lazy import to avoid pulling the DB module into worker bundles.
+  const { db } = await import("@/lib/db");
+  const { tenants } = await import("@/lib/db/schema");
+  const { eq } = await import("drizzle-orm");
+
+  const rows = await db
+    .select({
+      slimsBaseUrl: tenants.slimsBaseUrl,
+      apiSecretEncrypted: tenants.apiSecretEncrypted,
+    })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+
+  if (rows.length === 0) {
+    return {
+      status: 404,
+      body: { error: true, code: "TENANT_NOT_FOUND", message: "Tenant not found" },
+    };
+  }
+
+  const result = await queryAgent(rows[0], path, params, encryptionKey);
+  if (!result.success) {
+    return {
+      status: 503,
+      body: {
+        error: true,
+        code: "AGENT_UNREACHABLE",
+        message:
+          "Sistem internal perpustakaan kampus sedang tidak dapat dihubungi. Coba lagi nanti.",
+        detail: result.error,
+      },
+    };
+  }
+
+  return { status: 200, body: result.data };
+}

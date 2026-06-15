@@ -74,6 +74,11 @@ $nextlib_routes = array(
     '/api/v1/nextlib/member-check' => 'NextLibAgent\\endpoints\\MemberCheck',
     '/api/v1/nextlib/extend-book' => 'NextLibAgent\\endpoints\\ExtendBook',
     '/api/v1/nextlib/agent-command' => 'NextLibAgent\\endpoints\\AgentCommand',
+    // Library analytics detail (real-time queries against SLiMS)
+    '/api/v1/nextlib/top-books' => 'NextLibAgent\\endpoints\\TopBooks',
+    '/api/v1/nextlib/dead-stock' => 'NextLibAgent\\endpoints\\DeadStock',
+    '/api/v1/nextlib/collection-stats' => 'NextLibAgent\\endpoints\\CollectionStats',
+    '/api/v1/nextlib/member-activity' => 'NextLibAgent\\endpoints\\MemberActivity',
 );
 
 // Determine current request path
