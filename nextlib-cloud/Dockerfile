@@ -39,7 +39,11 @@ COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 # Operational CLI scripts (db:seed, seed-analytics, recompute-anomalies,
 # sync-from-slims) — invoked via `docker exec <app> npm run <script>`.
+# These scripts use tsx to run .ts directly and import from src/, so we
+# also need to ship the source tree (tsx compiles it on the fly).
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/src ./src
+COPY tsconfig.json ./
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3000
