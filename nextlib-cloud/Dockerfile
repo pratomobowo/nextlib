@@ -34,9 +34,16 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
+# Migrations + drizzle-kit config + entrypoint: let the container auto-migrate
+# on boot (docker-entrypoint.sh runs `drizzle-kit migrate` before next start).
+COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3000
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["npm", "run", "start"]
 
 # WhatsApp worker (BullMQ consumer for incoming messages).
@@ -50,4 +57,10 @@ COPY package.json package-lock.json* ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY tsconfig.json ./
 COPY src ./src
+# Worker also needs drizzle config + migrations so its entrypoint can migrate.
+COPY drizzle ./drizzle
+COPY drizzle.config.ts ./drizzle.config.ts
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["npm", "run", "worker:prod"]

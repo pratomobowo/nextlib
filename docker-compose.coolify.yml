@@ -1,0 +1,145 @@
+# =============================================================================
+# NextLib Platform — Coolify / Production compose
+# =============================================================================
+# Production-ready stack. Use this on Coolify (set as the Compose file / Base
+# Compose File in the service settings) instead of the local-dev docker-compose.yml.
+#
+# Differences vs. the local-dev compose:
+#   • `app` builds the `runner` target (Next.js production server), NOT `dev`.
+#   • No host bind-mounts — code is baked into the image, as Coolify expects.
+#   • PostgreSQL gets a real password (POSTGRES_PASSWORD must be set in Coolify).
+#   • App/worker run migrations on boot via docker-entrypoint.sh.
+#   • Internal service ports are NOT published to the host — Coolify's proxy
+#     terminates TLS and routes :3000. DB/Redis stay private to the stack.
+#
+# ── Secrets to set in Coolify (Environment / .env) ──────────────────────────
+#   POSTGRES_PASSWORD       — strong password for the Postgres superuser
+#   AES_256_ENCRYPTION_KEY  — 64-hex-char AES-256 key  (openssl rand -hex 32)
+#   NEXTAUTH_SECRET         — 64-hex-char NextAuth key (openssl rand -hex 32)
+#   NEXTAUTH_URL            — public URL, e.g. https://nextlib.yourdomain.com
+#   WHATSAPP_WEBHOOK_SECRET — HMAC secret shared with the Gowa engine
+#                             (openssl rand -hex 24)
+# Optional:
+#   AI_BASE_URL (default https://api.deepseek.com)
+#   AI_MODEL    (default deepseek-chat)
+#   AI_API_KEY  (optional, only if using the AI librarian)
+#
+# ── How to deploy on Coolify ────────────────────────────────────────────────
+#   1. New Resource → Docker Compose (empty) → paste this file, OR point the
+#      repo + set "Base Compose File" to docker-compose.coolify.yml.
+#   2. Add the secrets above under Environment (type: secret so they're masked).
+#   3. Set the exposed port to 3000 and attach a domain (Coolify provisions TLS).
+#   4. Deploy. Healthcheck: GET http://app:3000/api/v1/nextlib/health
+# =============================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Real auth in production — POSTGRES_PASSWORD is required.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nextlib}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-nextlib_cloud}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nextlib_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextlib} -d ${POSTGRES_DB:-nextlib_cloud}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - nextlib_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gowa:
+    image: aldinokemal2104/go-whatsapp-web-multidevice
+    restart: unless-stopped
+    volumes:
+      - gowa_storage:/app/storages
+    environment:
+      - APP_PORT=3000
+      - APP_DEBUG=false
+      - APP_HOST=0.0.0.0
+      # Webhook calls back into the app service (in-network, not via host).
+      - WHATSAPP_WEBHOOK=http://app:3000/api/v1/whatsapp/webhook
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET}
+    command: rest
+    networks:
+      - nextlib_net
+
+  app:
+    build:
+      context: ./nextlib-cloud
+      # Production server target — NOT development. Code is baked into the image.
+      target: runner
+    restart: unless-stopped
+    # Only the web server is exposed; Coolify's proxy maps a domain to :3000.
+    # DB/Redis are kept private to the stack network.
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-nextlib}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nextlib_cloud}
+      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:?NEXTAUTH_URL must be set}
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_API_URL=http://gowa:3000
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:?WHATSAPP_WEBHOOK_SECRET must be set}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-deepseek-chat}
+      - NODE_ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nextlib_net
+
+  # WhatsApp message worker (BullMQ consumer). Shares the image/env with the
+  # web server but targets the `worker` stage. No published port.
+  worker:
+    build:
+      context: ./nextlib-cloud
+      target: worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-nextlib}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nextlib_cloud}
+      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_API_URL=http://gowa:3000
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:?WHATSAPP_WEBHOOK_SECRET must be set}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-deepseek-chat}
+      - NODE_ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nextlib_net
+
+volumes:
+  postgres_data:
+  redis_data:
+  gowa_storage:
+
+networks:
+  nextlib_net:
+    driver: bridge
