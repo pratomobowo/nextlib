@@ -13,15 +13,19 @@
 #     terminates TLS and routes :3000. DB/Redis stay private to the stack.
 #
 # ── Secrets to set in Coolify (Environment / .env) ──────────────────────────
-#   DATABASE_URL            — REQUIRED, must be set explicitly. Password must
-#                             be URL-encoded. Example for password 'N3xt@#1234':
+#   DATABASE_URL            — REQUIRED. Must be set explicitly in Coolify's
+#                             env vars (Stack → Environment, or per-service).
+#                             Password must be URL-encoded. Example for
+#                             password 'N3xt@#1234':
 #                               postgresql://nextlib:N3xt%40%231234@db:5432/nextlib_cloud
 #                             Encoding map: @ → %40, # → %23, : → %3A, / → %2F,
 #                             % → %25, ? → %3F, [ → %5B, ] → %5D
 #                             (or use any online "URL encode" tool).
-#                             Why no auto-fallback: Coolify parses env values
-#                             with a Blade-style template engine, so nested
-#                             ${VAR:-default} fallbacks break the build.
+#                             Why we use plain ${VAR} (no bash :- or :? fallback):
+#                             Coolify's Blade template parser chokes on nested
+#                             or bash-style expansions. We rely on Coolify to
+#                             fail-loud if the var is missing, instead of
+#                             trying to default in compose.
 #   POSTGRES_PASSWORD       — raw password used by the Postgres init script
 #                             (e.g. N3xt@#1234 — must match the un-encoded form
 #                             used in DATABASE_URL).
@@ -105,11 +109,13 @@ services:
     expose:
       - "3000"
     environment:
-      # DATABASE_URL is required and must have its password URL-encoded. Coolify
-      # parses env values with its Blade-style template engine, so we avoid
-      # nested ${VAR:-default} fallbacks in the value (they blow up the parser).
-      # Example: postgresql://nextlib:N3xt%40%231234@db:5432/nextlib_cloud
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set with URL-encoded password}
+      # DATABASE_URL is required and must be set in Coolify's env vars with the
+      # password URL-encoded. We use plain ${VAR} (no bash-style :- or :?
+      # modifiers) because Coolify's Blade template parser rejects anything
+      # other than bare ${VAR} in env values.
+      # Example value to set in Coolify:
+      #   postgresql://nextlib:N3xt%40%231234@db:5432/nextlib_cloud
+      - DATABASE_URL=${DATABASE_URL}
       - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set}
       - NEXTAUTH_URL=${NEXTAUTH_URL:?NEXTAUTH_URL must be set}
@@ -139,7 +145,7 @@ services:
     restart: unless-stopped
     environment:
       # Same as `app` — see comment there. Must be URL-encoded; no fallback.
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set with URL-encoded password}
+      - DATABASE_URL=${DATABASE_URL}
       - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
       - REDIS_URL=redis://redis:6379
       - WHATSAPP_API_URL=http://gowa:3000
