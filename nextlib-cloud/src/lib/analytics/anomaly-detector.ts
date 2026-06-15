@@ -141,6 +141,9 @@ async function loadBaselines(
 ): Promise<Baselines> {
   const windowStart = new Date(targetDate);
   windowStart.setUTCDate(windowStart.getUTCDate() - BASELINE_WINDOW_DAYS);
+  // daily_stats_v2.date is a date-only string column (YYYY-MM-DD), so compare
+  // against the date portion rather than a full Date object.
+  const windowStartStr = windowStart.toISOString().slice(0, 10);
 
   // Single aggregated query over the indexed (tenant_id, date) range.
   // AVG returns NULL when no rows match; coalesce to 0.
@@ -154,8 +157,8 @@ async function loadBaselines(
     .where(
       and(
         eq(dailyStatsV2.tenantId, tenantId),
-        gte(dailyStatsV2.date, windowStart),
-        lt(dailyStatsV2.date, new Date(targetDate))
+        gte(dailyStatsV2.date, windowStartStr),
+        lt(dailyStatsV2.date, targetDate)
       )
     );
 
@@ -200,7 +203,7 @@ export async function recomputeFlagsForRow(
       activeOverdueCount: dailyStatsV2.activeOverdueCount,
     })
     .from(dailyStatsV2)
-    .where(and(eq(dailyStatsV2.tenantId, tenantId), eq(dailyStatsV2.date, new Date(targetDate))))
+    .where(and(eq(dailyStatsV2.tenantId, tenantId), eq(dailyStatsV2.date, targetDate)))
     .limit(1);
 
   if (rows.length === 0) return null;
@@ -218,7 +221,7 @@ export async function recomputeFlagsForRow(
     .where(
       and(
         eq(dailyStatsV2.tenantId, tenantId),
-        eq(dailyStatsV2.date, new Date(targetDate))
+        eq(dailyStatsV2.date, targetDate)
       )
     );
 
@@ -240,15 +243,11 @@ export async function listAllDailyStatsV2Dates(): Promise<
     .from(dailyStatsV2)
     .orderBy(asc(dailyStatsV2.tenantId), asc(dailyStatsV2.date));
 
-  // Drizzle returns Date for date columns; normalise to YYYY-MM-DD strings.
+  // daily_stats_v2.date is a date-only string column; values come back as
+  // YYYY-MM-DD already, no normalisation needed.
   return rows.map((r) => ({
     tenantId: r.tenantId,
-    date: toDateStr(r.date),
+    date: r.date,
   }));
 }
 
-/** Format a Date (or date-like) as a `YYYY-MM-DD` string in UTC. */
-function toDateStr(d: Date): string {
-  const dt = d instanceof Date ? d : new Date(d);
-  return dt.toISOString().slice(0, 10);
-}
