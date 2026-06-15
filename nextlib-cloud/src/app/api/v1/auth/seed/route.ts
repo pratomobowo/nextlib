@@ -10,16 +10,42 @@ import { createHash } from "crypto";
  * GET /api/v1/auth/seed
  *
  * Dev-only seeder route to populate the database with default tenants and users.
+ *
+ * Security: requires a shared secret token in the `X-Seed-Token` header. The
+ * token is configured via the `SEED_TOKEN` env var in the deployment platform.
+ * If `SEED_TOKEN` is unset, the endpoint is permanently disabled (403). This
+ * is preferred over a boolean flag (e.g. APP_DEBUG) because a flag is easy to
+ * forget to turn off in production; an unguessable token you remove is not.
+ *
+ * Every call is logged with the source IP and outcome for audit purposes.
  */
-export async function GET() {
-  // Allow seeding only in development or if explicitly enabled
-  const isDev = process.env.NODE_ENV === "development" || process.env.APP_DEBUG === "true";
-  if (!isDev) {
+export async function GET(request: Request) {
+  // 1. Token gate
+  const expectedToken = process.env.SEED_TOKEN;
+  if (!expectedToken) {
     return NextResponse.json(
-      { success: false, error: "Not allowed in production" },
+      {
+        success: false,
+        error: "Seeding is disabled: SEED_TOKEN env var is not set",
+      },
       { status: 403 }
     );
   }
+
+  const providedToken = request.headers.get("x-seed-token");
+  if (providedToken !== expectedToken) {
+    return NextResponse.json(
+      { success: false, error: "Invalid or missing X-Seed-Token header" },
+      { status: 403 }
+    );
+  }
+
+  // 2. Audit log
+  const sourceIp =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
+  console.log(`[Seeder] Authorized seed request from ${sourceIp}`);
 
   try {
     // 1. Ensure a default tenant exists
