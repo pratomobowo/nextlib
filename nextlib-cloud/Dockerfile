@@ -11,7 +11,7 @@ RUN npm ci
 # Development target (with hot-reloading)
 FROM base AS development
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=base /app/node_modules ./node_modules
 COPY . .
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
@@ -21,7 +21,7 @@ CMD ["npm", "run", "dev"]
 # Production builder
 FROM base AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=base /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
@@ -53,7 +53,7 @@ FROM base AS worker
 WORKDIR /app
 ENV NODE_ENV production
 COPY package.json package-lock.json* ./
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=base /app/node_modules ./node_modules
 COPY tsconfig.json ./
 COPY src ./src
 # Worker also needs drizzle config + migrations so its entrypoint can migrate.
