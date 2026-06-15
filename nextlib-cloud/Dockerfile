@@ -1,8 +1,7 @@
 FROM node:20-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
-RUN apk add --no-cache libc6-compat
+# netcat-openbsd is used by docker-entrypoint.sh to wait for Postgres before
+# running migrations (avoids the boot-order crash that caused restart loops).
+RUN apk add --no-cache libc6-compat netcat-openbsd
 WORKDIR /app
 
 # Install dependencies

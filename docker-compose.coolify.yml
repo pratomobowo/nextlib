@@ -105,6 +105,8 @@ services:
       - AI_API_KEY=${AI_API_KEY:-}
       - AI_MODEL=${AI_MODEL:-deepseek-chat}
       - NODE_ENV=production
+      # Only the web server migrates; the worker waits for the DB and skips.
+      - RUN_MIGRATIONS=1
     depends_on:
       db:
         condition: service_healthy
