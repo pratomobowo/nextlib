@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3000 -H 0.0.0.0",
     "lint": "eslint",
     "test": "cross-env NODE_ENV=development vitest --run",
     "test:watch": "cross-env NODE_ENV=development vitest",
