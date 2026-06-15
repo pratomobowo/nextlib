@@ -13,7 +13,17 @@
 #     terminates TLS and routes :3000. DB/Redis stay private to the stack.
 #
 # ── Secrets to set in Coolify (Environment / .env) ──────────────────────────
-#   POSTGRES_PASSWORD       — strong password for the Postgres superuser
+#   POSTGRES_PASSWORD       — strong password for the Postgres superuser.
+#                             If it contains URL-reserved chars (@, #, :, /,
+#                             %, ?, [, ]), you MUST ALSO set DATABASE_URL
+#                             below with the password URL-encoded. Example:
+#                               POSTGRES_PASSWORD=N3xt@#1234
+#                               DATABASE_URL=postgresql://nextlib:N3xt%40%231234@db:5432/nextlib_cloud
+#                             Postgres reads POSTGRES_PASSWORD raw; the app
+#                             reads DATABASE_URL with the encoded password.
+#                             If POSTGRES_PASSWORD is hex-only (e.g. from
+#                             `openssl rand -hex 32`), you can skip DATABASE_URL
+#                             and let the compose file build it automatically.
 #   AES_256_ENCRYPTION_KEY  — 64-hex-char AES-256 key  (openssl rand -hex 32)
 #   NEXTAUTH_SECRET         — 64-hex-char NextAuth key (openssl rand -hex 32)
 #   NEXTAUTH_URL            — public URL, e.g. https://nextlib.yourdomain.com
@@ -94,7 +104,12 @@ services:
     expose:
       - "3000"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-nextlib}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nextlib_cloud}
+      # Prefer an explicitly-set DATABASE_URL (URL-encoded password) over the
+      # constructed one. If POSTGRES_PASSWORD contains URL-reserved chars
+      # (@, #, :, /, %, ?, [, ]), you MUST set DATABASE_URL separately with
+      # the password URL-encoded — otherwise the parser stops at the first
+      # reserved char and the app sends a truncated password to Postgres.
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-nextlib}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nextlib_cloud}}
       - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set}
       - NEXTAUTH_URL=${NEXTAUTH_URL:?NEXTAUTH_URL must be set}
@@ -123,7 +138,7 @@ services:
       target: worker
     restart: unless-stopped
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-nextlib}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nextlib_cloud}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER:-nextlib}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nextlib_cloud}}
       - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
       - REDIS_URL=redis://redis:6379
       - WHATSAPP_API_URL=http://gowa:3000
