@@ -3,7 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, BookMarked, Building2, Database, LayoutDashboard, MessageCircle, Plug, Settings, BookOpen } from "lucide-react"
+import { BarChart3, BookMarked, Building2, Database, LayoutDashboard, MessageCircle, Plug, Settings, BookOpen, HelpCircle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -36,6 +36,7 @@ const navItems: NavItem[] = [
   { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3, section: "main" },
   { title: "Data Management", href: "/data-management", icon: Database, section: "main" },
   { title: "Koneksi", href: "/koneksi", icon: Plug, section: "main" },
+  { title: "Panduan", href: "/panduan", icon: HelpCircle, section: "main" },
   { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle, section: "system" },
   { title: "Tenants", href: "/tenants", icon: Building2, section: "system" },
   { title: "Settings", href: "/settings", icon: Settings, section: "system" },
@@ -63,8 +64,9 @@ export function AppSidebar() {
     loadUser()
   }, [])
 
-  // Role-based visibility filter (unchanged logic)
+  // Role-based visibility filter. Panduan is documentation — visible to all roles.
   const filteredNavItems = navItems.filter((item) => {
+    if (item.href === "/panduan") return true
     if (!user) {
       if (item.href === "/tenants" || item.href === "/koneksi" || item.href === "/data-management") return false
       return true
