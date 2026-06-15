@@ -86,10 +86,13 @@ services:
       # Production server target — NOT development. Code is baked into the image.
       target: runner
     restart: unless-stopped
-    # Only the web server is exposed; Coolify's proxy maps a domain to :3000.
-    # DB/Redis are kept private to the stack network.
-    ports:
-      - "3000:3000"
+    # No `ports` published here. Coolify's own proxy (Traefik) terminates TLS
+    # and routes the attached domain to this service on its internal port. If we
+    # bind 0.0.0.0:3000 here it collides with the proxy on a single-host setup
+    # ("port is already allocated"). Tell Coolify the exposed port in the UI
+    # (Port = 3000) instead.
+    expose:
+      - "3000"
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-nextlib}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nextlib_cloud}
       - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
