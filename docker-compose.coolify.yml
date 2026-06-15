@@ -53,8 +53,11 @@ services:
     restart: unless-stopped
     # Real auth in production — POSTGRES_PASSWORD is required.
     environment:
+      # Real auth in production — POSTGRES_PASSWORD must be set in Coolify
+      # env vars (raw value, e.g. "N3xt@#1234" — NOT URL-encoded; only the
+      # password embedded in DATABASE_URL needs URL-encoding).
       POSTGRES_USER: ${POSTGRES_USER:-nextlib}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-nextlib_cloud}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -109,19 +112,15 @@ services:
     expose:
       - "3000"
     environment:
-      # DATABASE_URL is required and must be set in Coolify's env vars with the
-      # password URL-encoded. We use plain ${VAR} (no bash-style :- or :?
-      # modifiers) because Coolify's Blade template parser rejects anything
-      # other than bare ${VAR} in env values.
-      # Example value to set in Coolify:
-      #   postgresql://nextlib:N3xt%40%231234@db:5432/nextlib_cloud
+      # DATABASE_URL — set in Coolify env vars with URL-encoded password.
+      # See top-of-file docs for the encoding map and worked example.
       - DATABASE_URL=${DATABASE_URL}
-      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set}
-      - NEXTAUTH_URL=${NEXTAUTH_URL:?NEXTAUTH_URL must be set}
+      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
       - REDIS_URL=redis://redis:6379
       - WHATSAPP_API_URL=http://gowa:3000
-      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:?WHATSAPP_WEBHOOK_SECRET must be set}
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET}
       - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
       - AI_API_KEY=${AI_API_KEY:-}
       - AI_MODEL=${AI_MODEL:-deepseek-chat}
@@ -146,10 +145,10 @@ services:
     environment:
       # Same as `app` — see comment there. Must be URL-encoded; no fallback.
       - DATABASE_URL=${DATABASE_URL}
-      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY:?AES_256_ENCRYPTION_KEY must be set}
+      - AES_256_ENCRYPTION_KEY=${AES_256_ENCRYPTION_KEY}
       - REDIS_URL=redis://redis:6379
       - WHATSAPP_API_URL=http://gowa:3000
-      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET:?WHATSAPP_WEBHOOK_SECRET must be set}
+      - WHATSAPP_WEBHOOK_SECRET=${WHATSAPP_WEBHOOK_SECRET}
       - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
       - AI_API_KEY=${AI_API_KEY:-}
       - AI_MODEL=${AI_MODEL:-deepseek-chat}
