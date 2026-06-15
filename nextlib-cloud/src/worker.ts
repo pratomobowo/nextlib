@@ -1,18 +1,22 @@
 /**
- * NextLib-Cloud WhatsApp message worker — standalone entry point.
+ * NextLib-Cloud standalone worker process — boots all BullMQ consumers.
  *
  * This file is NOT part of the Next.js server process. Run it separately:
  *
  *   npm run worker        # dev (tsx)
- *   npm run worker:prod   # production (node dist/worker.js, after build)
+ *   npm run worker:prod   # production
  *
  * Why a separate process?
  *   - BullMQ workers are long-lived connections to Redis. Embedding them in
- *     the Next.js server (e.g. via instrumentation.ts) couples message
- *     processing lifetime to web request lifetime and breaks under serverless.
+ *     the Next.js server couples job processing lifetime to web request
+ *     lifetime and breaks under serverless.
  *   - A dedicated process can be scaled, restarted, and resource-limited
  *     independently from the web tier.
  *   - A worker crash must never take the web server down with it.
+ *
+ * Workers booted here:
+ *   - WhatsApp message worker (wa-incoming queue) — AI intent pipeline.
+ *   - Backfill worker (backfill queue) — historical data sync orchestration.
  *
  * Required environment (all shared with the web app):
  *   REDIS_URL, DATABASE_URL, AES_256_ENCRYPTION_KEY
@@ -22,6 +26,7 @@
 
 import type { Worker } from "bullmq";
 import { createMessageWorker } from "@/lib/whatsapp/message-worker";
+import { createBackfillWorker } from "@/lib/backfill/backfill-worker";
 
 /** Required env vars — fail loudly with a clear message before booting. */
 function assertEnv(): void {
@@ -46,25 +51,36 @@ function assertEnv(): void {
 
 async function main(): Promise<void> {
   assertEnv();
-  console.log("[Worker] Booting NextLib WhatsApp message worker...");
+  console.log("[Worker] Booting NextLib workers (WhatsApp + backfill)...");
 
-  let worker: Worker;
+  const workers: { name: string; worker: Worker }[] = [];
+
+  // Boot the WhatsApp message worker
   try {
-    worker = createMessageWorker();
+    workers.push({ name: "whatsapp", worker: createMessageWorker() });
   } catch (err) {
-    console.error("[Worker] Failed to start worker:", err);
+    console.error("[Worker] Failed to start WhatsApp worker:", err);
     process.exit(1);
   }
 
-  // Graceful shutdown: stop accepting new jobs, wait for in-flight ones.
+  // Boot the backfill worker
+  try {
+    workers.push({ name: "backfill", worker: createBackfillWorker() });
+  } catch (err) {
+    console.error("[Worker] Failed to start backfill worker:", err);
+    process.exit(1);
+  }
+
+  // Graceful shutdown: stop accepting new jobs, wait for in-flight ones,
+  // then close all workers in parallel.
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[Worker] Received ${signal}, draining in-flight jobs...`);
+    console.log(`[Worker] Received ${signal}, draining in-flight jobs across ${workers.length} worker(s)...`);
     try {
-      await worker.close();
-      console.log("[Worker] Closed cleanly. Bye.");
+      await Promise.all(workers.map((w) => w.worker.close()));
+      console.log("[Worker] All workers closed cleanly. Bye.");
       process.exit(0);
     } catch (err) {
       console.error("[Worker] Error during shutdown:", err);

@@ -34,6 +34,14 @@ vi.mock('@/lib/crypto', () => ({
   decrypt: vi.fn(),
 }))
 
+// Mock the cloud-side anomaly detector so tests don't need a real DB.
+// The route computes flags from stored daily_stats_v2 rows, which the test
+// DB mock doesn't provide — so we stub the detector and assert it was called.
+const mockComputeAnomalyFlags = vi.fn().mockResolvedValue([])
+vi.mock('@/lib/analytics/anomaly-detector', () => ({
+  computeAnomalyFlags: (...args: unknown[]) => mockComputeAnomalyFlags(...args),
+}))
+
 // Import mocked modules for manipulation
 import { authenticateAgent } from '@/middleware/tenant-guard'
 import { validateToken } from '@/lib/hmac'
@@ -293,6 +301,17 @@ describe('POST /api/v2/aggregate', () => {
 
       expect(response.status).toBe(200)
       expect(responseBody).toEqual({ status: 'ok' })
+      // Cloud-side anomaly computation (mocked) — agent-supplied flags are
+      // ignored. The route passes whatever computeAnomalyFlags returns.
+      expect(mockComputeAnomalyFlags).toHaveBeenCalledWith(
+        MOCK_TENANT_ID,
+        '2026-06-12',
+        {
+          visitorCount: 150,
+          loanCount: 45,
+          activeOverdueCount: 12,
+        }
+      )
       expect(mockInsertDailyStatV2).toHaveBeenCalledWith({
         date: '2026-06-12',
         visitorCount: 150,
@@ -308,7 +327,7 @@ describe('POST /api/v2/aggregate', () => {
         totalCollectionSize: 25000,
         activeMemberCount: 1500,
         activeOverdueCount: 12,
-        anomalyFlags: ['ANOMALY_VISITORS'],
+        anomalyFlags: [],
       })
     })
 

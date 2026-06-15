@@ -229,5 +229,46 @@ export const sessions = pgTable(
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
+// ─── Backfill Jobs ────────────────────────────────────────────────────────────
+/**
+ * Tracks cloud-driven historical data backfill jobs.
+ *
+ * A tenant admin triggers a backfill from the dashboard (e.g. "import last 2
+ * years"). The API inserts a row here with status `pending` and enqueues a
+ * BullMQ job. The worker iterates the date range, calling the agent's
+ * `trigger_export` endpoint per date, and updates this row as it progresses.
+ * The dashboard polls `GET /api/v1/backfill/status` to render progress.
+ */
+export const backfillJobs = pgTable(
+  "backfill_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    /** pending | running | completed | failed | cancelled */
+    status: varchar("status", { length: 20 }).default("pending").notNull(),
+    dateStart: date("date_start").notNull(),
+    dateEnd: date("date_end").notNull(),
+    totalDays: integer("total_days").notNull(),
+    processedDays: integer("processed_days").default(0).notNull(),
+    failedDays: integer("failed_days").default(0).notNull(),
+    lastProcessedDate: date("last_processed_date"),
+    lastError: text("last_error"),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_backfill_jobs_tenant").on(table.tenantId),
+    index("idx_backfill_jobs_status").on(table.status),
+  ]
+);
+
+export type BackfillJob = typeof backfillJobs.$inferSelect;
+export type NewBackfillJob = typeof backfillJobs.$inferInsert;
+
+
 
 

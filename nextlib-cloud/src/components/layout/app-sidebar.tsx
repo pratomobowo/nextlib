@@ -3,7 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, Building2, LayoutDashboard, MessageCircle, Plug, Settings } from "lucide-react"
+import { BarChart3, Building2, Database, LayoutDashboard, MessageCircle, Plug, Settings } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -26,6 +26,7 @@ const navItems = [
   { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { title: "Tenants", href: "/tenants", icon: Building2 },
   { title: "Koneksi", href: "/koneksi", icon: Plug },
+  { title: "Data Management", href: "/data-management", icon: Database },
   { title: "WhatsApp", href: "/whatsapp", icon: MessageCircle },
   { title: "Settings", href: "/settings", icon: Settings },
 ]
@@ -55,7 +56,7 @@ export function AppSidebar() {
   const filteredNavItems = navItems.filter((item) => {
     // Hide administrative pages until user role is loaded to prevent flashes of unauthorized pages
     if (!user) {
-      if (item.href === "/tenants" || item.href === "/koneksi") return false
+      if (item.href === "/tenants" || item.href === "/koneksi" || item.href === "/data-management") return false
       return true
     }
 
@@ -67,6 +68,9 @@ export function AppSidebar() {
     // Tenant scoped users (tenant_admin and librarian)
     if (item.href === "/tenants") return false
     if (item.href === "/koneksi") {
+      return user.role === "tenant_admin"
+    }
+    if (item.href === "/data-management") {
       return user.role === "tenant_admin"
     }
     return true

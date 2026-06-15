@@ -399,12 +399,12 @@ class EnhancedExporter
         $dailyMetrics    = $this->collector->collectDailyMetrics($targetDate);
         $snapshotMetrics = $this->collector->collectSnapshotMetrics($targetDate);
 
-        // Step 2: Detect anomalies
-        $anomalyFlags = $this->anomalyTagger->detectAnomalies(
-            $dailyMetrics,
-            $snapshotMetrics,
-            $targetDate
-        );
+        // Step 2: Anomaly detection now runs cloud-side (see cloud
+        // src/lib/analytics/anomaly-detector.ts) for performance — the PHP
+        // baseline recomputation was 30 queries × 11 SQL each per export.
+        // The agent sends empty flags; the cloud computes them from stored
+        // daily_stats_v2 rows (which are already indexed) at ingestion time.
+        $anomalyFlags = array();
 
         $v2Enabled = isset($this->config['v2_enabled']) ? (bool) $this->config['v2_enabled'] : false;
 

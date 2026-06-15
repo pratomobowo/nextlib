@@ -168,12 +168,11 @@ export async function POST(request: Request) {
       returnCount: stats.return_count,
     })
   } catch (error: unknown) {
-    // Handle duplicate entry (same tenant + date) gracefully
-    if (
-      error instanceof Error &&
-      'code' in error &&
-      (error as { code: string }).code === '23505'
-    ) {
+    // Handle duplicate entry (same tenant + date) gracefully. Drizzle wraps
+    // the driver error in its own Error with the original under `cause`.
+    const pgError = error as { code?: string; cause?: { code?: string } }
+    const errCode = pgError.code ?? pgError.cause?.code
+    if (errCode === '23505') {
       return NextResponse.json(
         {
           error: true,

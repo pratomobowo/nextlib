@@ -4,6 +4,7 @@ import { z } from 'zod/v4'
 import { authenticateAgent } from '@/middleware/tenant-guard'
 import { validateToken } from '@/lib/hmac'
 import { decrypt } from '@/lib/crypto'
+import { computeAnomalyFlags } from '@/lib/analytics/anomaly-detector'
 
 const aggregatePayloadV2Schema = z.object({
   schema_version: z.literal("2.0"),
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const { tenant_id, date, daily_metrics, snapshot_metrics, anomaly_flags } = parsed.data
+  const { tenant_id, date, daily_metrics, snapshot_metrics } = parsed.data
 
   // 5. Verify tenant_id in payload matches the authenticated tenant
   if (tenant_id !== tenant.id) {
@@ -150,7 +151,24 @@ export async function POST(request: Request) {
     )
   }
 
-  // 7. Insert daily stats into database using tenant-scoped operations
+  // 7. Compute anomaly flags cloud-side. The agent now sends empty flags and
+  // relies on the cloud to derive them from stored daily_stats_v2 rows
+  // (indexed) — far cheaper than the agent recomputing 30-day baselines by
+  // re-querying SLiMS for every historical day.
+  let anomalyFlags: string[]
+  try {
+    anomalyFlags = await computeAnomalyFlags(tenant.id, date, {
+      visitorCount: daily_metrics.visitor_count,
+      loanCount: daily_metrics.loan_count,
+      activeOverdueCount: snapshot_metrics.active_overdue_count,
+    })
+  } catch (error) {
+    console.error('Error computing anomaly flags:', error)
+    // Non-fatal: store empty flags rather than failing the whole ingest.
+    anomalyFlags = []
+  }
+
+  // 8. Insert daily stats into database using tenant-scoped operations
   try {
     await scope.insertDailyStatV2({
       date,
@@ -167,14 +185,14 @@ export async function POST(request: Request) {
       totalCollectionSize: snapshot_metrics.total_collection_size,
       activeMemberCount: snapshot_metrics.active_member_count,
       activeOverdueCount: snapshot_metrics.active_overdue_count,
-      anomalyFlags: anomaly_flags,
+      anomalyFlags,
     })
   } catch (error: unknown) {
-    if (
-      error instanceof Error &&
-      'code' in error &&
-      (error as { code: string }).code === '23505'
-    ) {
+    // Drizzle wraps the driver error in its own Error with the original
+    // under `cause`. Handle duplicate (tenant_id, date) as 409.
+    const pgError = error as { code?: string; cause?: { code?: string } }
+    const errCode = pgError.code ?? pgError.cause?.code
+    if (errCode === '23505') {
       return NextResponse.json(
         {
           error: true,
