@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { maskSecretValue, writeAuditLog, type AuditLogInput } from "./tenant-audit";
+import { maskSecretValue, writeAuditLog } from "./tenant-audit";
 
 // `vi.mock` factories are hoisted above imports, so any module-level state
 // they reference must be defined via `vi.hoisted` (also hoisted). Plain

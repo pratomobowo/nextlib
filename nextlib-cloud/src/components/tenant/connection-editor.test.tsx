@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const fetchMock = vi.fn();
-global.fetch = fetchMock as any;
+global.fetch = fetchMock as unknown as typeof global.fetch;
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },

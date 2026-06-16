@@ -15,7 +15,7 @@ vi.mock("@/lib/redis", () => {
       ttl,
       multi: () => {
         const execResults: [Error | null, unknown][] = [];
-        const chain: any = {
+        const chain: Record<string, unknown> = {
           incr(key: string) {
             const cur = redisStore.get(key) ?? { count: 0, resetAt: 0 };
             cur.count++;
