@@ -53,8 +53,8 @@ COPY --from=builder /app/src ./src
 # Plugin source (consumed by the SaaS /agent-zip endpoint — bundles the
 # plugin into a per-tenant ZIP with a pre-baked .env).
 COPY --from=builder /app/nextlib-agent ./nextlib-agent
-COPY tsconfig.json ./
-COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY nextlib-cloud/tsconfig.json ./
+COPY nextlib-cloud/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 3000
 ENV PORT 3000
