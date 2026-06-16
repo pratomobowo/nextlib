@@ -159,6 +159,28 @@ export function ConnectionEditor({ tenant }: { tenant: Tenant }) {
           <p className="mt-2 text-xs text-muted-foreground">
             ⚠ Token hanya ditampilkan sekali saat regenerate. Simpan dengan aman.
           </p>
+
+          <div className="mt-4 flex items-center gap-2 border-t pt-4">
+            <div className="flex-1 text-xs text-muted-foreground">
+              Download plugin (ZIP dengan .env pre-baked untuk tenant ini).
+              Tombol ini akan <strong>regenerate token</strong> + langsung download.
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                if (
+                  confirm(
+                    "Download plugin?\n\nToken lama akan langsung tidak valid. Plugin yang sudah ter-install di SLiMS harus di-update dengan token baru dalam 24 jam."
+                  )
+                ) {
+                  window.location.href = `/api/v1/tenants/${tenant.id}/agent-zip`;
+                }
+              }}
+            >
+              Download Plugin
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
