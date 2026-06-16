@@ -488,5 +488,83 @@ describe('PATCH /api/v1/tenants/:id', () => {
 
     expect(response.status).toBe(200)
     expect(body.data.slims_base_url).toBe('[ENCRYPTED]')
+    // No slims_base_url in body and user is not owner → decrypt must never run.
+    // Guards against a future regression that decrypts unconditionally and then masks.
+    expect(mockDecrypt).not.toHaveBeenCalled()
+  })
+
+  // ---- 13. 409 STALE_WRITE when expectedUpdatedAt does not match ----
+  it('returns 409 STALE_WRITE when expectedUpdatedAt does not match', async () => {
+    // Override the SELECT chain so existing.updatedAt is a known instant.
+    const existingWithDate = {
+      ...mockTenantRecord,
+      updatedAt: new Date('2026-06-15T10:00:00Z'),
+    }
+    const selectChain = buildSelectChain([existingWithDate])
+    mockDbSelect.mockReturnValue(selectChain)
+
+    const request = createPatchRequest({
+      name: 'Universitas Test Updated',
+      expectedUpdatedAt: '2026-06-15T09:00:00Z', // 1h stale
+    })
+    const response = await PATCH(request, { params: Promise.resolve({ id: mockTenantId }) })
+    const body = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(body.error).toBe(true)
+    expect(body.code).toBe('STALE_WRITE')
+    // Must not have mutated the DB or written an audit log on a stale write.
+    expect(mockDbUpdate).not.toHaveBeenCalled()
+    expect(mockWriteAuditLog).not.toHaveBeenCalled()
+  })
+
+  // ---- 14. Multi-field PATCH writes 1 audit log row per changed field ----
+  it('writes 1 audit log row per changed field for multi-field PATCH', async () => {
+    // existing.name = 'Universitas Test', existing.status = 'pending'
+    // (slimsBaseUrl is unchanged and not in the body, so no audit row for it)
+    const existing = {
+      ...mockTenantRecord,
+      name: 'Universitas Test',
+      status: 'pending',
+    }
+    const selectChain = buildSelectChain([existing])
+    mockDbSelect.mockReturnValue(selectChain)
+
+    const updatedRow = {
+      ...existing,
+      name: 'Universitas Test Updated',
+      status: 'connected',
+      updatedAt: new Date('2024-01-03'),
+    }
+    const updateChain = buildUpdateChain([updatedRow])
+    mockDbUpdate.mockReturnValue(updateChain)
+
+    const request = createPatchRequest({
+      name: 'Universitas Test Updated',
+      status: 'connected',
+    })
+    const response = await PATCH(request, { params: Promise.resolve({ id: mockTenantId }) })
+
+    expect(response.status).toBe(200)
+    // Exactly 2 audit log rows: one per changed field.
+    expect(mockWriteAuditLog).toHaveBeenCalledTimes(2)
+    expect(mockWriteAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fieldName: 'name',
+        oldValue: 'Universitas Test',
+        newValue: 'Universitas Test Updated',
+      })
+    )
+    expect(mockWriteAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fieldName: 'status',
+        oldValue: 'pending',
+        newValue: 'connected',
+      })
+    )
+    // No audit row for slims_base_url — it wasn't in the body and didn't change.
+    expect(mockWriteAuditLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ fieldName: 'slims_base_url' })
+    )
   })
 })
