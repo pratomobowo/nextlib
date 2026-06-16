@@ -100,7 +100,11 @@ services:
 
   app:
     build:
-      context: ./nextlib-cloud
+      # Build context is the repo root so the Dockerfile can also COPY the
+      # nextlib-agent/ source (the SaaS /agent-zip endpoint bundles the
+      # plugin into a per-tenant ZIP at request time).
+      context: .
+      dockerfile: ./nextlib-cloud/Dockerfile
       # Production server target — NOT development. Code is baked into the image.
       target: runner
     restart: unless-stopped
@@ -146,7 +150,8 @@ services:
   # web server but targets the `worker` stage. No published port.
   worker:
     build:
-      context: ./nextlib-cloud
+      context: .
+      dockerfile: ./nextlib-cloud/Dockerfile
       target: worker
     restart: unless-stopped
     environment:

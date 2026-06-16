@@ -4,15 +4,18 @@ FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat netcat-openbsd
 WORKDIR /app
 
-# Install dependencies
-COPY package.json package-lock.json* ./
+# Install dependencies (build context is repo root, so the package.json lives
+# inside nextlib-cloud/).
+COPY nextlib-cloud/package.json nextlib-cloud/package-lock.json* ./
 RUN npm ci
 
 # Development target (with hot-reloading)
 FROM base AS development
 WORKDIR /app
 COPY --from=base /app/node_modules ./node_modules
-COPY . .
+COPY nextlib-cloud/ ./
+# Include the plugin source so docker exec + test scripts can use it
+COPY nextlib-agent ./nextlib-agent
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 EXPOSE 3000
@@ -22,7 +25,11 @@ CMD ["npm", "run", "dev"]
 FROM base AS builder
 WORKDIR /app
 COPY --from=base /app/node_modules ./node_modules
-COPY . .
+COPY nextlib-cloud/ ./
+# The SaaS /agent-zip endpoint bundles nextlib-agent/ into a per-tenant ZIP
+# at request time, so the plugin source must be in the image. Place it at
+# /app/nextlib-agent so process.cwd() + '/nextlib-agent' resolves to it.
+COPY nextlib-agent ./nextlib-agent
 RUN npm run build
 
 # Production runner (Next.js web server)
@@ -43,6 +50,9 @@ COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 # also need to ship the source tree (tsx compiles it on the fly).
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/src ./src
+# Plugin source (consumed by the SaaS /agent-zip endpoint — bundles the
+# plugin into a per-tenant ZIP with a pre-baked .env).
+COPY --from=builder /app/nextlib-agent ./nextlib-agent
 COPY tsconfig.json ./
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
@@ -59,14 +69,14 @@ CMD ["npm", "run", "start"]
 FROM base AS worker
 WORKDIR /app
 ENV NODE_ENV production
-COPY package.json package-lock.json* ./
+COPY nextlib-cloud/package.json nextlib-cloud/package-lock.json* ./
 COPY --from=base /app/node_modules ./node_modules
-COPY tsconfig.json ./
-COPY src ./src
+COPY nextlib-cloud/tsconfig.json ./
+COPY nextlib-cloud/src ./src
 # Worker also needs drizzle config + migrations so its entrypoint can migrate.
-COPY drizzle ./drizzle
-COPY drizzle.config.ts ./drizzle.config.ts
-COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY nextlib-cloud/drizzle ./drizzle
+COPY nextlib-cloud/drizzle.config.ts ./drizzle.config.ts
+COPY nextlib-cloud/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["npm", "run", "worker:prod"]
