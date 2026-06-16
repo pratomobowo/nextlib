@@ -57,6 +57,13 @@ $nextlib_config = require __DIR__ . '/config.php';
 
 spl_autoload_register(function ($class) {
     $prefix = 'NextLibAgent\\';
+    // Plugin classes live under the plugin root with PSR-4-style subdirs:
+    //   NextLibAgent\Plugin          → lib/Plugin.php
+    //   NextLibAgent\Lib\Foo         → lib/Foo.php
+    //   NextLibAgent\Middleware\Bar  → middleware/Bar.php
+    //   NextLibAgent\endpoints\Baz   → endpoints/Baz.php
+    // We special-case the root namespace (NextLibAgent\) to look in lib/
+    // so NextLibAgent\Plugin maps to lib/Plugin.php.
     $base_dir = __DIR__ . '/';
 
     $len = strlen($prefix);
@@ -64,11 +71,26 @@ spl_autoload_register(function ($class) {
         return;
     }
 
-    $relative_class = substr($class, $len);
-    $file = $base_dir . str_replace('\\', '/', $relative_class) . '.php';
+    $relative = substr($class, $len);
+    if ($relative === false || $relative === '') {
+        return;
+    }
 
-    if (file_exists($file)) {
-        require_once $file;
+    // Try lib/<name>.php first (covers the root namespace + Lib\ subdir),
+    // then the explicit subdirectories for Middleware/endpoints/Exporter.
+    $candidates = [
+        $base_dir . 'lib/' . str_replace('\\', '/', $relative) . '.php',
+        $base_dir . str_replace('\\', '/', $relative) . '.php',
+        $base_dir . 'middleware/' . str_replace('\\', '/', $relative) . '.php',
+        $base_dir . 'endpoints/' . str_replace('\\', '/', $relative) . '.php',
+        $base_dir . 'exporter/' . str_replace('\\', '/', $relative) . '.php',
+    ];
+
+    foreach ($candidates as $file) {
+        if (file_exists($file)) {
+            require_once $file;
+            return;
+        }
     }
 });
 
