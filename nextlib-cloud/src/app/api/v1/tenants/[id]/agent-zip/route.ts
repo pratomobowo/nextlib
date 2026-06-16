@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomBytes, createHash } from "crypto";
+import { existsSync } from "fs";
+import { resolve } from "path";
 import { db } from "@/lib/db";
 import { tenants } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -31,6 +33,25 @@ import { encrypt } from "@/lib/crypto";
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    return await handleGet(request, params);
+  } catch (err) {
+    console.error("[agent-zip] uncaught error:", err);
+    return NextResponse.json(
+      {
+        error: true,
+        code: "INTERNAL",
+        message: err instanceof Error ? err.message : "Internal error",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleGet(
+  request: Request,
+  params: Promise<{ id: string }>
 ) {
   const { id } = await params;
 
@@ -109,7 +130,23 @@ export async function GET(
     },
   });
 
-  // 6. Build ZIP
+  // 6. Build ZIP — wrap in try/catch so test failures surface as 500 not crash
+  let pluginSourcePath: string;
+  try {
+    pluginSourcePath = getPluginSourcePath();
+  } catch (err) {
+    console.error("[agent-zip] plugin source not found:", err);
+    return NextResponse.json(
+      {
+        error: true,
+        code: "PLUGIN_SOURCE_MISSING",
+        message: err instanceof Error ? err.message : "Plugin source not found",
+      },
+      { status: 500 }
+    );
+  }
+
+  // 7. Build ZIP
   const cloudBaseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
   const envContent = buildEnvFile({
     apiSecret,
@@ -121,11 +158,6 @@ export async function GET(
     tenantName: tenant.name,
     tenantSlug: tenant.slug,
   });
-
-  // Read all plugin source files at ZIP build time
-  // (In Next.js, server bundle is at process.cwd + /nextlib-agent/)
-  // We use the build-time copied source from the deployed Docker image
-  const pluginSourcePath = await getPluginSourcePath();
 
   const archive = new ZipArchive({ zlib: { level: 9 } });
   const webStream = new ReadableStream({
@@ -169,10 +201,7 @@ export async function GET(
  * In production (Docker), the source is at /app/../nextlib-agent/ relative
  * to the Next.js server bundle. In development, it's at the project root.
  */
-async function getPluginSourcePath(): Promise<string> {
-  const { existsSync } = await import("fs");
-  const { resolve } = await import("path");
-
+function getPluginSourcePath(): string {
   const candidates = [
     resolve(process.cwd(), "nextlib-agent"),
     resolve(process.cwd(), "..", "nextlib-agent"),
@@ -180,14 +209,17 @@ async function getPluginSourcePath(): Promise<string> {
   ];
 
   for (const candidate of candidates) {
-    if (existsSync(candidate) && existsSync(resolve(candidate, "nextlib-agent.plugin.php"))) {
+    if (
+      existsSync(candidate) &&
+      existsSync(resolve(candidate, "nextlib-agent.plugin.php"))
+    ) {
       return candidate;
     }
   }
 
   throw new Error(
     "nextlib-agent source not found in any expected location. " +
-    "Looked in: " + candidates.join(", ")
+      "Looked in: " + candidates.join(", ")
   );
 }
 
