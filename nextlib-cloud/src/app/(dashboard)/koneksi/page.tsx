@@ -2,13 +2,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { db } from "@/lib/db"
 import { tenants } from "@/lib/db/schema"
-import { desc } from "drizzle-orm"
+import { desc, eq } from "drizzle-orm"
+import { getSessionUser } from "@/lib/auth/session"
 import { DisconnectButton } from "@/components/tenant/disconnect-button"
+import { ConnectionEditor } from "@/components/tenant/connection-editor"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic"
 
 export default async function KoneksiPage() {
-  const allTenants = await db
+  const sessionUser = await getSessionUser()
+  if (!sessionUser) redirect("/login")
+
+  const isSuperAdmin = sessionUser.user.role === "super_admin"
+
+  const baseQuery = db
     .select({
       id: tenants.id,
       name: tenants.name,
@@ -19,6 +27,33 @@ export default async function KoneksiPage() {
     .from(tenants)
     .orderBy(desc(tenants.updatedAt))
 
+  const allTenants = isSuperAdmin
+    ? await baseQuery
+    : await baseQuery.where(eq(tenants.id, sessionUser.user.tenantId!))
+
+  // For tenant_admin: render the editor for their own tenant
+  if (!isSuperAdmin && allTenants.length === 1) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Koneksi</h1>
+          <p className="text-muted-foreground">
+            Status koneksi NextLib ↔ SLiMS kampus Anda
+          </p>
+        </div>
+        <ConnectionEditor
+          tenant={{
+            id: allTenants[0].id,
+            name: allTenants[0].name,
+            slug: allTenants[0].slug,
+            status: allTenants[0].status,
+          }}
+        />
+      </div>
+    )
+  }
+
+  // For super_admin: keep existing list view (unchanged below)
   const connected = allTenants.filter((t) => t.status === "connected").length
   const pending = allTenants.filter((t) => t.status === "pending").length
   const disconnected = allTenants.filter((t) => t.status === "disconnected").length
