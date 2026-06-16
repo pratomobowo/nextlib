@@ -1,12 +1,14 @@
 # NextLib-Agent Security Configuration
 # Requirement 3.4: Prevent direct web access to config files containing secret keys
 #
-# This .htaccess denies direct HTTP access to all PHP files in the plugin directory
-# except index.php (the plugin entry point). Even though the plugins/ folder is
-# typically not served directly by the web server, this provides defense-in-depth
-# protection for the secret key stored in config.php.
+# As of v2.0.0, the plugin no longer serves HTTP requests directly from this
+# directory. All /api/v1/nextlib/* requests are dispatched by SLiMS's own
+# /api/v1/ front controller (via the custom_api_route hook registered in
+# nextlib-agent.plugin.php). This .htaccess now serves only as defense-in-
+# depth to prevent direct access to .env / config.php if the SLiMS admin
+# ever exposes plugins/ via the web root.
 
-# Deny direct access to all .php files except index.php
+# Deny direct access to all .php files (defense-in-depth)
 <FilesMatch "\.php$">
     # Apache 2.4+
     <IfModule mod_authz_core.c>
@@ -19,8 +21,9 @@
     </IfModule>
 </FilesMatch>
 
-# Allow access to index.php (plugin entry point)
-<Files "index.php">
+# Allow access to nextlib-agent.plugin.php (the SLiMS plugin entry point
+# that registers the custom_api_route hook)
+<Files "nextlib-agent.plugin.php">
     <IfModule mod_authz_core.c>
         Require all granted
     </IfModule>
