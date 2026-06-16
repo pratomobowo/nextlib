@@ -27,6 +27,9 @@ opac-*/
 # AI tooling scratch space (Kiro IDE specs — internal, not product docs)
 .kiro/
 
+# Git worktrees (isolated workspaces for feature development)
+.worktrees/
+
 # NextLib-Agent runtime state (queue, resume markers) — never commit
 nextlib-agent/queue/*.json
 nextlib-agent/queue/*.tmp.*
