@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   index,
   boolean,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -268,6 +269,46 @@ export const backfillJobs = pgTable(
 
 export type BackfillJob = typeof backfillJobs.$inferSelect;
 export type NewBackfillJob = typeof backfillJobs.$inferInsert;
+
+// ─── Tenant Audit Log ────────────────────────────────────────────────────────
+/**
+ * Append-only audit log of every configuration change made to a tenant.
+ * Used for security review, debugging, and compliance.
+ *
+ *   - `tenant_id` cascades on tenant deletion (logs don't outlive the tenant).
+ *   - `actor_user_id` is nullable and `SET NULL` on user deletion — logs
+ *     outlive the user; we keep `actor_email` denormalized for that case.
+ *   - No `updatedAt`: this table is insert-only by design.
+ */
+export const tenantAuditLogs = pgTable(
+  "tenant_audit_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    actorEmail: text("actor_email").notNull(),
+    action: varchar("action", { length: 40 }).notNull(),
+    fieldName: varchar("field_name", { length: 40 }),
+    oldValue: text("old_value"),
+    newValue: text("new_value"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_audit_tenant_created").on(
+      table.tenantId,
+      table.createdAt.desc()
+    ),
+    index("idx_audit_actor").on(table.actorUserId, table.createdAt.desc()),
+  ]
+);
+
+export type TenantAuditLog = typeof tenantAuditLogs.$inferSelect;
+export type NewTenantAuditLog = typeof tenantAuditLogs.$inferInsert;
 
 
 
