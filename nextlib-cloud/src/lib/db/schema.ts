@@ -23,6 +23,10 @@ export const tenants = pgTable("tenants", {
   slimsBaseUrl: text("slims_base_url").notNull(),
   apiSecretEncrypted: text("api_secret_encrypted").notNull(), // AES-256 encrypted
   tokenHash: varchar("token_hash", { length: 64 }).notNull(), // For quick token lookup
+  ed25519PublicKey: text("ed25519_public_key"), // base64, NOT secret
+  ed25519PrivateKeyEncrypted: text("ed25519_private_key_encrypted"), // AES-256-GCM, base64
+  ed25519RotatedAt: timestamp("ed25519_rotated_at", { withTimezone: true }),
+  ed25519KeyId: text("ed25519_key_id"), // UUID, for audit
   status: varchar("status", { length: 20 }).default("pending").notNull(), // pending, connected, disconnected
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

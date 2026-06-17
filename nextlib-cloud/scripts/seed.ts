@@ -17,9 +17,9 @@
 import { db } from "../src/lib/db";
 import { tenants, users } from "../src/lib/db/schema";
 import { hashPassword } from "../src/lib/auth/password";
-import { encrypt } from "../src/lib/crypto";
+import { encrypt, generateEd25519Keypair } from "../src/lib/crypto";
 import { eq } from "drizzle-orm";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 
 const DEFAULT_TENANT_SLUG = "universitas-nextlib";
 const DEFAULT_TENANT_NAME = "Universitas NextLib";
@@ -48,6 +48,8 @@ async function main() {
     const apiSecret = DEFAULT_AGENT_API_SECRET;
     const tokenHash = createHash("sha256").update(apiSecret).digest("hex");
     const slimsBaseUrl = DEFAULT_SLIMS_URL;
+    const kp = generateEd25519Keypair();
+    const ed25519PrivateKeyEncrypted = encrypt(kp.privateKey, encryptionKey);
 
     [tenant] = await db
       .insert(tenants)
@@ -58,6 +60,10 @@ async function main() {
         slimsBaseUrl: encrypt(slimsBaseUrl, encryptionKey),
         apiSecretEncrypted: encrypt(apiSecret, encryptionKey),
         tokenHash,
+        ed25519PublicKey: kp.publicKey,
+        ed25519PrivateKeyEncrypted,
+        ed25519RotatedAt: new Date(),
+        ed25519KeyId: randomUUID(),
       })
       .returning();
 
