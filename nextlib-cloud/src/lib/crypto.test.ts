@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { encrypt, decrypt } from './crypto'
+import { encrypt, decrypt, generateEd25519Keypair, signRequest, verifyRequestSignature } from './crypto'
 import { randomBytes } from 'crypto'
 
 describe('AES-256-GCM Crypto Utility', () => {
@@ -103,5 +103,50 @@ describe('AES-256-GCM Crypto Utility', () => {
       const encrypted = encrypt(plaintext, randomKey)
       expect(decrypt(encrypted, randomKey)).toBe(plaintext)
     })
+  })
+})
+
+describe('Ed25519 keypair', () => {
+  // Use a current timestamp so the verify-with-tolerance tests aren't defeated
+  // by the 300s window. The spec's hard-coded '1700000000' is Nov 2023, which
+  // would always fail the freshness check by the time these tests run.
+  const now = String(Math.floor(Date.now() / 1000))
+
+  it('generates a valid 32-byte public key and 32-byte private seed', () => {
+    const kp = generateEd25519Keypair()
+    expect(Buffer.from(kp.publicKey, 'base64')).toHaveLength(32)
+    expect(Buffer.from(kp.privateKey, 'base64')).toHaveLength(32)
+  })
+
+  it('signRequest produces a 64-byte detached signature', () => {
+    const kp = generateEd25519Keypair()
+    const sig = signRequest(kp.privateKey, now, 'POST', '/api/v1/nextlib/handshake', '{"a":1}')
+    expect(Buffer.from(sig, 'base64')).toHaveLength(64)
+  })
+
+  it('verifyRequestSignature accepts a fresh signature', () => {
+    const kp = generateEd25519Keypair()
+    const sig = signRequest(kp.privateKey, now, 'POST', '/api/v1/nextlib/handshake', '{"a":1}')
+    expect(verifyRequestSignature(kp.publicKey, sig, now, 'POST', '/api/v1/nextlib/handshake', '{"a":1}', 300)).toBe(true)
+  })
+
+  it('verifyRequestSignature rejects a tampered body', () => {
+    const kp = generateEd25519Keypair()
+    const sig = signRequest(kp.privateKey, now, 'POST', '/api/v1/nextlib/handshake', '{"a":1}')
+    expect(verifyRequestSignature(kp.publicKey, sig, now, 'POST', '/api/v1/nextlib/handshake', '{"a":2}', 300)).toBe(false)
+  })
+
+  it('verifyRequestSignature rejects an expired timestamp', () => {
+    const kp = generateEd25519Keypair()
+    const sig = signRequest(kp.privateKey, now, 'POST', '/api/v1/nextlib/handshake', '{"a":1}')
+    const longAgo = String(Math.floor(Date.now() / 1000) - 1000)
+    expect(verifyRequestSignature(kp.publicKey, sig, longAgo, 'POST', '/api/v1/nextlib/handshake', '{"a":1}', 300)).toBe(false)
+  })
+
+  it('verifyRequestSignature rejects a wrong public key', () => {
+    const a = generateEd25519Keypair()
+    const b = generateEd25519Keypair()
+    const sig = signRequest(a.privateKey, now, 'POST', '/api/v1/nextlib/handshake', '{"a":1}')
+    expect(verifyRequestSignature(b.publicKey, sig, now, 'POST', '/api/v1/nextlib/handshake', '{"a":1}', 300)).toBe(false)
   })
 })
