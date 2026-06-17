@@ -88,7 +88,12 @@ function makeReq() {
 
 describe("POST /test-connection", () => {
   it("agent 200 → status=connected, audit log success", async () => {
-    fetchMock.mockResolvedValue({ status: 200, ok: true });
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({ status: "healthy", database: { connected: true } })),
+    });
     const res = await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -103,10 +108,15 @@ describe("POST /test-connection", () => {
   });
 
   it("agent 500 → status=disconnected, audit log failure", async () => {
-    fetchMock.mockResolvedValue({ status: 500, ok: false });
+    fetchMock.mockResolvedValue({
+      status: 500,
+      ok: false,
+      text: () => Promise.resolve("Internal Server Error"),
+    });
     const res = await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });
     const body = await res.json();
     expect(body.data.status).toBe("disconnected");
+    expect(body.data.category).toBe("server_error");
   });
 
   it("network error → status=disconnected", async () => {

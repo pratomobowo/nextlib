@@ -7,7 +7,35 @@ interface TestConnectionButtonProps {
   tenantId: string;
 }
 
-export function TestConnectionButton({ tenantId }: TestConnectionButtonProps) {
+interface TestConnectionResult {
+  success: boolean;
+  responseTimeMs: number;
+  statusCode: number;
+  status: "connected" | "disconnected";
+  url: string;
+  category: string;
+  title: string;
+  suggestion: string;
+  error: string | null;
+  slimsStatus: string | null;
+  slimsDbConnected: boolean | null;
+  responseBodyPreview: string | null;
+}
+
+const CATEGORY_ICON: Record<string, string> = {
+  ok: "✅",
+  plugin_unhealthy: "⚠️",
+  plugin_not_installed: "❌",
+  routing_misconfigured: "⚠️",
+  auth_failed: "🔒",
+  server_error: "💥",
+  timeout: "⏱️",
+  network_unreachable: "🌐",
+  blocked: "🛑",
+  unknown: "❓",
+};
+
+export function TestConnectionButton({ tenantId }: { tenantId: string }) {
   const [isPending, setIsPending] = useState(false);
 
   async function handleClick() {
@@ -18,16 +46,31 @@ export function TestConnectionButton({ tenantId }: TestConnectionButtonProps) {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(body.message || "Gagal test koneksi");
+        alert(body.message || `Gagal test koneksi (HTTP ${res.status})`);
         return;
       }
-      if (body.data?.success) {
-        alert(`Terhubung dalam ${body.data.responseTimeMs}ms`);
-      } else {
-        alert(`Tidak terhubung: ${body.data?.error ?? body.data?.statusCode ?? "unknown"}`);
-      }
+      const d: TestConnectionResult = body.data;
+      const icon = CATEGORY_ICON[d.category] ?? "❓";
+      const lines = [
+        `${icon} ${d.title}`,
+        ``,
+        `URL: ${d.url}`,
+        d.statusCode ? `HTTP status: ${d.statusCode}` : null,
+        d.responseTimeMs ? `Response time: ${d.responseTimeMs}ms` : null,
+        d.slimsStatus ? `SLiMS reported: ${d.slimsStatus}` : null,
+        d.slimsDbConnected === false ? `SLiMS DB: not connected` : null,
+        d.error ? `Error: ${d.error}` : null,
+        ``,
+        `💡 ${d.suggestion}`,
+        d.responseBodyPreview && d.responseBodyPreview.length > 0
+          ? `\nServer response (first 500 chars):\n${d.responseBodyPreview}`
+          : null,
+      ].filter(Boolean) as string[];
+      alert(lines.join("\n"));
     } catch {
-      alert("Gagal terhubung ke server");
+      alert(
+        "Gagal terhubung ke server SaaS (bukan ke SLiMS). Cek koneksi internet Anda."
+      );
     } finally {
       setIsPending(false);
     }
