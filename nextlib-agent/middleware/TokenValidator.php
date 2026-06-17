@@ -94,8 +94,8 @@ class TokenValidator
     }
 
     /**
-     * Middleware handler that validates the X-NextLib-Token header and
-     * either proceeds with the endpoint callback or returns an HTTP 401 error.
+     * Middleware handler that validates the request and either proceeds with
+     * the endpoint callback or returns an HTTP 401 error.
      *
      * Supports two auth schemes (tried in order):
      *
@@ -103,21 +103,27 @@ class TokenValidator
      *    - `X-NextLib-Timestamp`: seconds since epoch
      *    - `X-NextLib-Signature`: base64-encoded 64-byte detached Ed25519 signature
      *      over `${timestamp}.${METHOD}.${path}.${body}`
-     *    - `$apiSecret` is the 32-byte raw public key, base64-encoded
+     *    - `$ed25519PublicKey` is the 32-byte raw public key, base64-encoded
      *
      * 2. **Legacy HMAC (backward compat):**
      *    - `X-NextLib-Token`: `${timestamp}.${hex(HMAC-SHA256(timestamp.body, secret))}`
      *    - `X-NextLib-Secret-Hash`: SHA-256(secret) hex
-     *    - `$apiSecret` is the shared secret
+     *    - `$hmacSecret` is the shared secret
      *
-     * @param string   $apiSecret     Ed25519 public key (base64) OR shared HMAC secret
-     * @param callable $callback      Endpoint handler function, receives raw request body as argument
-     * @param int      $maxAgeSeconds Maximum token age in seconds (default: 300)
+     * Both arguments are passed separately so each scheme can use its own key
+     * — Ed25519 and HMAC keys are independent. If Ed25519 headers are present
+     * but verification fails, the request is rejected with 401 INVALID_SIGNATURE
+     * (no fallback to HMAC — prevents downgrade attacks).
+     *
+     * @param string   $ed25519PublicKey 32-byte raw Ed25519 public key, base64-encoded
+     * @param string   $hmacSecret       Shared HMAC secret (legacy v1)
+     * @param callable $callback         Endpoint handler function, receives raw request body as argument
+     * @param int      $maxAgeSeconds    Maximum token age in seconds (default: 300)
      * @return void Outputs JSON response directly
      */
-    public static function handle(string $apiSecret, callable $callback, int $maxAgeSeconds = 300)
+    public static function handle(string $ed25519PublicKey, string $hmacSecret, callable $callback, int $maxAgeSeconds = 300)
     {
-        $headers = function_exists('getallheaders') ? array_change_key_case(getallheaders(), CASE_LOWER) : [];
+        $headers = self::collectHeaders();
 
         $body = self::getRequestBody();
         $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -127,7 +133,7 @@ class TokenValidator
         $timestamp = $headers['x-nextlib-timestamp'] ?? null;
         $signature = $headers['x-nextlib-signature'] ?? null;
         if ($timestamp !== null && $signature !== null) {
-            if (Ed25519Verifier::verify($apiSecret, $signature, $timestamp, $method, $path, $body, $maxAgeSeconds)) {
+            if (Ed25519Verifier::verify($ed25519PublicKey, $signature, $timestamp, $method, $path, $body, $maxAgeSeconds)) {
                 $result = call_user_func($callback, $body);
                 if ($result !== null) {
                     self::sendJson(200, $result);
@@ -154,7 +160,7 @@ class TokenValidator
             return;
         }
 
-        $validator = new self($apiSecret, $maxAgeSeconds);
+        $validator = new self($hmacSecret, $maxAgeSeconds);
 
         if (!$validator->validate($token, $body)) {
             self::sendError(
@@ -214,6 +220,40 @@ class TokenValidator
     }
 
     /**
+     * Collect all HTTP request headers as lowercase => value.
+     *
+     * Prefers getallheaders() (Apache/CGI mod_php); falls back to scanning
+     * $_SERVER['HTTP_*'] which is populated by every SAPI (PHP-FPM, CLI test
+     * runner, built-in server, etc.). This makes TokenValidator testable
+     * outside Apache and robust across PHP configurations.
+     *
+     * @return array<string, string>
+     */
+    private static function collectHeaders(): array
+    {
+        $headers = [];
+
+        if (function_exists('getallheaders')) {
+            $raw = @getallheaders();
+            if (is_array($raw)) {
+                foreach ($raw as $name => $value) {
+                    $headers[strtolower((string) $name)] = (string) $value;
+                }
+            }
+        }
+
+        foreach ($_SERVER as $key => $value) {
+            if (strpos($key, 'HTTP_') === 0) {
+                // HTTP_X_NEXTLIB_TIMESTAMP → x-nextlib-timestamp
+                $name = strtolower(str_replace('_', '-', substr($key, 5)));
+                $headers[$name] = (string) $value;
+            }
+        }
+
+        return $headers;
+    }
+
+    /**
      * Get the raw request body.
      *
      * @return string The raw request body (empty string if none)
@@ -245,14 +285,20 @@ class TokenValidator
     /**
      * Send a JSON response with the given HTTP status code.
      *
+     * Skips http_response_code/header() if headers have already been sent
+     * (e.g., in CLI/test environments). The JSON body is always emitted so
+     * callers can still inspect the response.
+     *
      * @param int   $statusCode HTTP status code
      * @param array $data       Response data to encode as JSON
      * @return void
      */
     private static function sendJson(int $statusCode, array $data)
     {
-        http_response_code($statusCode);
-        header('Content-Type: application/json; charset=utf-8');
+        if (!headers_sent()) {
+            http_response_code($statusCode);
+            header('Content-Type: application/json; charset=utf-8');
+        }
         echo json_encode($data, JSON_UNESCAPED_UNICODE);
     }
 }

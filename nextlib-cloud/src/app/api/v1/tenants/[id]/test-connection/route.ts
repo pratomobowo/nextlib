@@ -170,7 +170,7 @@ export async function POST(
   }
 
   const encryptionKey = process.env.AES_256_ENCRYPTION_KEY!;
-  const slimsBaseUrl = decrypt(tenant.slimsBaseUrl, encryptionKey);
+  const slimsBaseUrl = decrypt(tenant.slimsBaseUrl, encryptionKey).replace(/\/+$/, "");
 
   // Ed25519 signed request: tenant's private key signs
   // `${ts}.${METHOD}.${path}.${body}` — plugin verifies with public key in .env
