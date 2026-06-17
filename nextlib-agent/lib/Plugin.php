@@ -198,16 +198,21 @@ class Plugin
     // ──────────────────────────────────────────────────────────────
 
     /**
-     * Run a callback behind HMAC-SHA256 token validation.
+     * Run a callback behind authentication (Ed25519 preferred, HMAC fallback).
      *
      * Thin wrapper over TokenValidator::handle. The callback receives the
      * raw request body and returns the response data; TokenValidator takes
-     * care of token validation, expiry check, and JSON output.
+     * care of signature/timestamp validation and JSON output.
+     *
+     * Both auth keys are passed: TokenValidator picks Ed25519 if its headers
+     * are present, otherwise HMAC. If Ed25519 headers are present but
+     * verification fails, the request is rejected (no downgrade to HMAC).
      */
     private function withHmac(callable $callback)
     {
         TokenValidator::handle(
-            $this->config['api_secret'],
+            $this->config['ed25519_public_key'] ?? '',
+            $this->config['api_secret'] ?? '',
             $callback,
             $this->config['token_max_age']
         );

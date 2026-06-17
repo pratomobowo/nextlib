@@ -27,6 +27,8 @@ const tenant = {
   name: "Universitas NextLib",
   slug: "universitas-nextlib",
   status: "connected",
+  ed25519PublicKey: "AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777BBBB8888",
+  ed25519RotatedAt: new Date("2026-06-17T00:00:00Z"),
 };
 
 describe("<ConnectionEditor />", () => {

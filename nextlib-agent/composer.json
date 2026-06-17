@@ -13,6 +13,7 @@
     "autoload": {
         "files": [
             "lib/HmacSigner.php",
+            "lib/Ed25519Verifier.php",
             "lib/HttpClient.php",
             "lib/HandshakePing.php",
             "middleware/TokenValidator.php",

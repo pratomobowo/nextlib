@@ -33,11 +33,19 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-type Tenant = { id: string; name: string; slug: string; status: string };
+type Tenant = {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  ed25519PublicKey: string | null;
+  ed25519RotatedAt: string | Date | null;
+};
 
 export function ConnectionEditor({ tenant }: { tenant: Tenant }) {
   const router = useRouter();
   const [regenOpen, setRegenOpen] = useState(false);
+  const [rotating, setRotating] = useState(false);
 
   const {
     register,
@@ -144,26 +152,83 @@ export function ConnectionEditor({ tenant }: { tenant: Tenant }) {
         <CardHeader>
           <CardTitle className="text-lg">API Token</CardTitle>
           <CardDescription>
-            Token ini dipakai oleh plugin NextLib-Agent di SLiMS untuk autentikasi HMAC.
+            Plugin NextLib-Agent di SLiMS mengautentikasi SaaS dengan
+            tanda tangan Ed25519 (v2). Private key hanya disimpan di SaaS
+            dan tidak pernah dikirim ke plugin.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded-lg border bg-muted/50 px-3 py-2 text-xs font-mono">
-              xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-            </code>
-            <Button variant="outline" onClick={() => setRegenOpen(true)}>
-              Regenerate
-            </Button>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            ⚠ Token hanya ditampilkan sekali saat regenerate. Simpan dengan aman.
+          {tenant.ed25519PublicKey ? (
+            <div>
+              <p className="text-xs text-muted-foreground">
+                Ed25519 public key (aman ditampilkan — hanya untuk verifikasi)
+              </p>
+              <code
+                data-testid="ed25519-public-key"
+                className="block overflow-x-auto rounded-lg border bg-muted/50 px-3 py-2 text-xs font-mono break-all"
+              >
+                {tenant.ed25519PublicKey.slice(0, 32)}…{tenant.ed25519PublicKey.slice(-8)}
+              </code>
+              {tenant.ed25519RotatedAt ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Rotated: {new Date(tenant.ed25519RotatedAt).toLocaleString()}
+                </p>
+              ) : null}
+              <div className="mt-2 flex justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={rotating}
+                  onClick={async () => {
+                    if (
+                      !confirm(
+                        "Rotate keypair? Plugin yang sudah ter-install akan kehilangan koneksi sampai Anda re-download plugin ZIP."
+                      )
+                    ) {
+                      return;
+                    }
+                    setRotating(true);
+                    try {
+                      const r = await fetch(
+                        `/api/v1/tenants/${tenant.id}/rotate-keypair`,
+                        { method: "POST" }
+                      );
+                      if (r.ok) {
+                        alert(
+                          "Keypair rotated. Re-download plugin ZIP agar koneksi tetap jalan."
+                        );
+                        router.refresh();
+                      } else {
+                        const err = await r.json().catch(() => ({}));
+                        alert(`Gagal rotate: ${err.message ?? r.statusText}`);
+                      }
+                    } catch {
+                      alert("Gagal terhubung ke server");
+                    } finally {
+                      setRotating(false);
+                    }
+                  }}
+                >
+                  {rotating ? "Rotating…" : "Rotate Keypair"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Belum ada keypair. Download plugin untuk generate satu (otomatis).
+            </p>
+          )}
+
+          <p className="mt-3 text-xs text-muted-foreground">
+            ⚠ Token HMAC lama masih ditampilkan di regenerate modal untuk backward
+            compat. Akan dihapus setelah deprecation window.
           </p>
 
           <div className="mt-4 flex items-center gap-2 border-t pt-4">
             <div className="flex-1 text-xs text-muted-foreground">
-              Download plugin (ZIP dengan .env pre-baked untuk tenant ini).
-              Tombol ini akan <strong>regenerate token</strong> + langsung download.
+              Download plugin (ZIP dengan .env pre-baked untuk tenant ini, termasuk
+              Ed25519 public key).
             </div>
             <Button
               type="button"

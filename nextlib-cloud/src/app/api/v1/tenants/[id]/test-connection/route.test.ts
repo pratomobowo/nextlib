@@ -14,8 +14,8 @@ const {
   insertMock,
   fetchMock,
   decryptMock,
-  generateTokenMock,
-  createHashMock,
+  signRequestMock,
+  ensureTenantKeypairMock,
 } = vi.hoisted(() => ({
   getSessionUserMock: vi.fn(),
   rlMock: vi.fn(),
@@ -23,8 +23,8 @@ const {
   insertMock: vi.fn(),
   fetchMock: vi.fn(),
   decryptMock: vi.fn(),
-  generateTokenMock: vi.fn(),
-  createHashMock: vi.fn(),
+  signRequestMock: vi.fn(),
+  ensureTenantKeypairMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ getSessionUser: () => getSessionUserMock() }));
@@ -38,12 +38,13 @@ vi.mock("@/lib/tenant-access-guard", () => ({
     return { allowed: false, status: 403, code: "FORBIDDEN", message: "You do not have access to this tenant." };
   },
 }));
-vi.mock("@/lib/crypto", () => ({ decrypt: (...a: unknown[]) => decryptMock(...a) }));
-vi.mock("@/lib/hmac", () => ({ generateToken: (...a: unknown[]) => generateTokenMock(...a) }));
-vi.mock("crypto", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("crypto")>();
-  return { ...actual, createHash: (...a: unknown[]) => createHashMock(...a) };
-});
+vi.mock("@/lib/crypto", () => ({
+  decrypt: (...a: unknown[]) => decryptMock(...a),
+  signRequest: (...a: unknown[]) => signRequestMock(...a),
+}));
+vi.mock("@/lib/tenant-keys", () => ({
+  ensureTenantKeypair: (...a: unknown[]) => ensureTenantKeypairMock(...a),
+}));
 vi.mock("@/lib/db", () => ({
   db: {
     select: () => ({
@@ -71,15 +72,18 @@ beforeEach(() => {
   getSessionUserMock.mockReset();
   rlMock.mockReset();
   decryptMock.mockReset();
-  generateTokenMock.mockReset();
-  createHashMock.mockReset();
+  signRequestMock.mockReset();
+  ensureTenantKeypairMock.mockReset();
   rlMock.mockResolvedValue({ allowed: true, remaining: 9, resetSec: 60 });
   updateMock.mockResolvedValue([{ id: "t1" }]);
   insertMock.mockResolvedValue(undefined);
   getSessionUserMock.mockResolvedValue(sessionUser);
   decryptMock.mockReturnValue("https://slims.test/");
-  generateTokenMock.mockReturnValue("t.tok");
-  createHashMock.mockReturnValue({ update: () => ({ digest: () => "h(secret)" }) });
+  ensureTenantKeypairMock.mockResolvedValue({
+    publicKey: "PUB_KEY",
+    privateKeyEncrypted: "enc-priv",
+  });
+  signRequestMock.mockReturnValue("mock-signature-base64");
 });
 
 function makeReq() {
@@ -165,5 +169,43 @@ describe("POST /test-connection", () => {
     rlMock.mockResolvedValue({ allowed: false, remaining: 0, resetSec: 60 });
     const res = await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });
     expect(res.status).toBe(429);
+  });
+
+  it("sends Ed25519 signature headers (X-NextLib-Timestamp + X-NextLib-Signature)", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({ status: "healthy", database: { connected: true } })),
+    });
+    await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [_url, init] = fetchMock.mock.calls[0];
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    expect(headers["X-NextLib-Timestamp"]).toMatch(/^\d+$/);
+    expect(headers["X-NextLib-Signature"]).toBe("mock-signature-base64");
+    // Legacy HMAC headers must NOT be present anymore
+    expect(headers["X-NextLib-Token"]).toBeUndefined();
+    expect(headers["X-NextLib-Secret-Hash"]).toBeUndefined();
+  });
+
+  it("signRequest is called with the right canonical message (GET /api/v1/nextlib/health, empty body)", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () => Promise.resolve("{}"),
+    });
+    await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });
+    expect(signRequestMock).toHaveBeenCalledTimes(1);
+    const args = signRequestMock.mock.calls[0];
+    // args: (privateKey, timestamp, method, path, body)
+    expect(typeof args[0]).toBe("string"); // decrypted private key
+    expect(args[1]).toMatch(/^\d+$/); // timestamp seconds since epoch
+    expect(args[2]).toBe("GET");
+    // Path is whatever new URL(healthUrl).pathname produces — assert suffix
+    // (mock decrypt adds trailing slash so pathname can be "//api/v1/nextlib/health"
+    // in tests; in prod slimsBaseUrl has no trailing slash)
+    expect(args[3]).toMatch(/\/api\/v1\/nextlib\/health$/);
+    expect(args[4]).toBe("");
   });
 });

@@ -183,10 +183,14 @@ describe('Privacy-First Architecture: PII Never Persists in Cloud', () => {
         'slimsBaseUrl',
         'apiSecretEncrypted',
         'tokenHash',
+        'ed25519PublicKey',
+        'ed25519PrivateKeyEncrypted',
+        'ed25519RotatedAt',
+        'ed25519KeyId',
         'status',
         'createdAt',
         'updatedAt',
-      ]
+      ]      
 
       expect(columnNames.sort()).toEqual(expectedColumns.sort())
     })

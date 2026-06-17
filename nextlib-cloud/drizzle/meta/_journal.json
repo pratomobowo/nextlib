@@ -36,6 +36,13 @@
       "when": 1781569533815,
       "tag": "0004_tenant_audit_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781680514561,
+      "tag": "0005_tense_rhino",
+      "breakpoints": true
     }
   ]
 }
