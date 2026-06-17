@@ -6,9 +6,8 @@ import { getSessionUser } from "@/lib/auth/session";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { writeAuditLog } from "@/lib/tenant-audit";
 import { checkTenantAccess } from "@/lib/tenant-access-guard";
-import { decrypt } from "@/lib/crypto";
-import { generateToken } from "@/lib/hmac";
-import { createHash } from "crypto";
+import { decrypt, signRequest } from "@/lib/crypto";
+import { ensureTenantKeypair } from "@/lib/tenant-keys";
 
 const TIMEOUT_MS = 5000;
 
@@ -172,10 +171,15 @@ export async function POST(
 
   const encryptionKey = process.env.AES_256_ENCRYPTION_KEY!;
   const slimsBaseUrl = decrypt(tenant.slimsBaseUrl, encryptionKey);
-  const apiSecret = decrypt(tenant.apiSecretEncrypted, encryptionKey);
-  const token = generateToken("", apiSecret);
-  const secretHash = createHash("sha256").update(apiSecret).digest("hex");
+
+  // Ed25519 signed request: tenant's private key signs
+  // `${ts}.${METHOD}.${path}.${body}` — plugin verifies with public key in .env
+  const { privateKeyEncrypted } = await ensureTenantKeypair(id);
+  const privateKey = decrypt(privateKeyEncrypted, encryptionKey);
   const healthUrl = `${slimsBaseUrl}/api/v1/nextlib/health`;
+  const healthPath = new URL(healthUrl).pathname;
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = signRequest(privateKey, timestamp, "GET", healthPath, "");
 
   // 4. Probe with timeout
   const controller = new AbortController();
@@ -192,8 +196,8 @@ export async function POST(
     const res = await fetch(healthUrl, {
       method: "GET",
       headers: {
-        "X-NextLib-Token": token,
-        "X-NextLib-Secret-Hash": secretHash,
+        "X-NextLib-Timestamp": timestamp,
+        "X-NextLib-Signature": signature,
       },
       signal: controller.signal,
     });
