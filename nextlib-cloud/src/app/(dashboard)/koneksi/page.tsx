@@ -23,6 +23,8 @@ export default async function KoneksiPage() {
       slug: tenants.slug,
       status: tenants.status,
       updatedAt: tenants.updatedAt,
+      ed25519PublicKey: tenants.ed25519PublicKey,
+      ed25519RotatedAt: tenants.ed25519RotatedAt,
     })
     .from(tenants)
     .orderBy(desc(tenants.updatedAt))
@@ -47,6 +49,8 @@ export default async function KoneksiPage() {
             name: allTenants[0].name,
             slug: allTenants[0].slug,
             status: allTenants[0].status,
+            ed25519PublicKey: allTenants[0].ed25519PublicKey,
+            ed25519RotatedAt: allTenants[0].ed25519RotatedAt,
           }}
         />
       </div>
