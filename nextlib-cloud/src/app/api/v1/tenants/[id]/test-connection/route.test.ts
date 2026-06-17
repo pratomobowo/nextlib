@@ -119,6 +119,35 @@ describe("POST /test-connection", () => {
     expect(body.data.category).toBe("server_error");
   });
 
+  it("agent 404 with Apache HTML body → routing_misconfigured (not plugin_not_installed)", async () => {
+    fetchMock.mockResolvedValue({
+      status: 404,
+      ok: false,
+      text: () =>
+        Promise.resolve(
+          "<!DOCTYPE HTML><html><head><title>404 Not Found</title></head><body><h1>Not Found</h1><address>Apache Server at opac.example Port 443</address></body></html>"
+        ),
+    });
+    const res = await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });
+    const body = await res.json();
+    expect(body.data.category).toBe("routing_misconfigured");
+    expect(body.data.title).toContain("routing");
+  });
+
+  it("agent 404 with JSON error body → plugin_not_installed", async () => {
+    fetchMock.mockResolvedValue({
+      status: 404,
+      ok: false,
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({ error: "Route /v1/nextlib/health not found" })
+        ),
+    });
+    const res = await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });
+    const body = await res.json();
+    expect(body.data.category).toBe("plugin_not_installed");
+  });
+
   it("network error → status=disconnected", async () => {
     fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
     const res = await POST(makeReq(), { params: Promise.resolve({ id: "t1" }) });

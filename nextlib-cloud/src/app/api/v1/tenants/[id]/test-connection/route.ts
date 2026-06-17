@@ -31,7 +31,9 @@ type ErrorCategory =
 function categorizeError(
   statusCode: number,
   error: string | undefined,
-  isAbort: boolean
+  isAbort: boolean,
+  bodyIsJson: boolean,
+  bodyLooksLikeDefaultServerPage: boolean
 ): ErrorCategory {
   if (isAbort) return "timeout";
   if (error) {
@@ -51,9 +53,23 @@ function categorizeError(
   }
   // HTTP status
   if (statusCode === 0) return "network_unreachable";
-  if (statusCode === 404) return "plugin_not_installed";
-  if (statusCode === 405 || statusCode === 403) return "routing_misconfigured";
-  if (statusCode === 401 || statusCode === 403) return "auth_failed";
+
+  // 404: distinguish "plugin not installed" (we got 404 from SLiMS for our
+  // route) vs "routing misconfigured" (Apache/Cloudflare returned 404 BEFORE
+  // the request reached SLiMS — body is HTML, not JSON).
+  if (statusCode === 404) {
+    if (!bodyIsJson || bodyLooksLikeDefaultServerPage) {
+      return "routing_misconfigured";
+    }
+    return "plugin_not_installed";
+  }
+  if (statusCode === 405) return "routing_misconfigured";
+  if (statusCode === 401 || statusCode === 403) {
+    // 403 could also be Apache deny or Cloudflare challenge. If body is
+    // HTML (not JSON), it's likely a proxy/server block, not SLiMS auth.
+    if (statusCode === 403 && !bodyIsJson) return "blocked";
+    return "auth_failed";
+  }
   if (statusCode >= 500) return "server_error";
   if (statusCode >= 200 && statusCode < 300) return "ok";
   return "unknown";
@@ -184,19 +200,19 @@ export async function POST(
     statusCode = res.status;
     success = res.ok;
 
-    // Try to read the body for diagnostics
+  // Try to read the body for diagnostics
+  try {
+    const text = await res.text();
+    rawBody = text.slice(0, 500);
     try {
-      const text = await res.text();
-      rawBody = text.slice(0, 500);
-      try {
-        slimsHealth = JSON.parse(text);
-      } catch {
-        // not JSON, that's fine
-      }
+      slimsHealth = JSON.parse(text);
     } catch {
-      // body read failed, ignore
+      // not JSON, that's fine
     }
-  } catch (e) {
+  } catch {
+    // body read failed, ignore
+  }
+} catch (e) {
     isAbort = e instanceof Error && e.name === "AbortError";
     error = e instanceof Error ? e.message : String(e);
   } finally {
@@ -205,8 +221,23 @@ export async function POST(
   const responseTimeMs = Date.now() - start;
 
   // 5. Determine category — for 2xx, check the SLiMS health body for "healthy" status
-  let category: ErrorCategory = categorizeError(statusCode, error, isAbort);
+  let category: ErrorCategory;
   let healthy = false;
+
+  if (statusCode > 0 && slimsHealth) {
+    // 2xx with JSON body — use body type + content for categorization
+    const bodyIsJson = true;
+    const bodyLooksLikeDefaultServerPage = false;
+    category = categorizeError(statusCode, error, isAbort, bodyIsJson, bodyLooksLikeDefaultServerPage);
+  } else if (statusCode > 0) {
+    // 2xx with non-JSON body (unusual but handle it)
+    category = categorizeError(statusCode, error, isAbort, false, false);
+  } else {
+    // 4xx/5xx — use body inspection to disambiguate
+    const bodyIsJson = slimsHealth !== null;
+    const bodyLooksLikeDefaultServerPage = /<!DOCTYPE|<html|<body|Apache Server at|File not found\./i.test(rawBody);
+    category = categorizeError(statusCode, error, isAbort, bodyIsJson, bodyLooksLikeDefaultServerPage);
+  }
 
   if (category === "ok" && slimsHealth) {
     // SLiMS replied 2xx but might still be unhealthy (e.g., DB down on SLiMS side)
