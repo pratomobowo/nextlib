@@ -107,9 +107,12 @@ $plugin = \SLiMS\Plugins::getInstance();
  * SLiMS strips 'api' from the request URL, the actual URL is /api/v1/...
  * but the path registered here is /v1/... (with the v1/ prefix).
  */
-$plugin->register('custom_api_route', function ($args) use ($nextlib_config) {
-    /** @var \Router $router */
-    $router = $args['router'];
+$plugin->register('custom_api_route', function ($router) use ($nextlib_config) {
+    // SLiMS's Plugins::execute() (lib/Plugins.php:489) calls callbacks with
+    // `call_user_func_array($cb, array_values($params))`, so the Router
+    // arrives as the first positional arg — NOT as `$args['router']`.
+    // Treating the first arg as an array is what produced the
+    // "Cannot use object of type Router as array" fatal on the API path.
 
     // Unauthenticated health probe — used by SaaS to verify reachability
     $router->map('GET', '/v1/nextlib/health', 'NextLibAgent\\Plugin@handleHealth');
