@@ -49,6 +49,10 @@ vi.mock("@/lib/db/schema", () => ({
   tenants: { id: "id", slug: "slug", name: "name" },
 }));
 vi.mock("@/lib/crypto", () => ({ encrypt: (s: string) => `enc(${s})` }));
+vi.mock("@/lib/tenant-keys", () => ({
+  ensureTenantKeypair: () =>
+    Promise.resolve({ publicKey: "MOCK_PUB_KEY_BASE64", privateKeyEncrypted: "MOCK_ENC" }),
+}));
 // Allow existsSync to return true for the first candidate the route checks
 // (process.cwd() + '/nextlib-agent' and its sibling plugin.php file)
 vi.mock("fs", async (importOriginal) => {
@@ -69,6 +73,7 @@ vi.mock("fs", async (importOriginal) => {
 // Mock archiver to return a stub stream that emits a tiny ZIP-like buffer
 vi.mock("archiver", () => {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+  const appendCalls: Array<{ content: string; name?: string }> = [];
   return {
     ZipArchive: class {
       on(e: string, cb: (...args: unknown[]) => void) {
@@ -76,7 +81,8 @@ vi.mock("archiver", () => {
         listeners.get(e)!.push(cb);
         return this;
       }
-      append(_content: string, _opts: object) {
+      append(content: string, opts: { name?: string }) {
+        appendCalls.push({ content, name: opts.name });
         return this;
       }
       directory(_path: string, _name: string) {
@@ -90,6 +96,7 @@ vi.mock("archiver", () => {
         return this;
       }
     },
+    __getAppendCalls: () => appendCalls,
   };
 });
 
@@ -158,5 +165,19 @@ describe("GET /agent-zip", () => {
       })
     );
     expect(res.headers.get("content-type")).toBe("application/zip");
+  });
+
+  it("includes NEXTLIB_PUBLIC_KEY in the streamed .env (Ed25519 v2 auth)", async () => {
+    const { __getAppendCalls } = (await import("archiver")) as unknown as {
+      __getAppendCalls: () => Array<{ content: string; name?: string }>;
+    };
+    const res = await GET(makeReq(), { params: Promise.resolve({ id: "t1" }) });
+    expect(res.status).toBe(200);
+    const envCall = __getAppendCalls().find((c) => c.name === "nextlib-agent/.env");
+    expect(envCall, ".env should be appended to the ZIP").toBeDefined();
+    expect(envCall!.content).toContain("NEXTLIB_PUBLIC_KEY=MOCK_PUB_KEY_BASE64");
+    // Legacy HMAC env is still present for backward compat (deprecated in v2).
+    // .env ships the raw secret (randomBytes(32).toString('hex') = 64 hex chars).
+    expect(envCall!.content).toMatch(/NEXTLIB_TOKEN_SECRET=[0-9a-f]{64}/);
   });
 });

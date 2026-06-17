@@ -44,7 +44,16 @@ $nextlib_env = function ($key, $default = null) {
 
 return array(
     /**
-     * API secret key for HMAC-SHA256 token validation.
+     * Ed25519 public key for SaaS request signature verification.
+     * Verifying-only key — safe to ship in plaintext.
+     * Env: NEXTLIB_PUBLIC_KEY
+     *
+     * @var string
+     */
+    'ed25519_public_key' => $nextlib_env('NEXTLIB_PUBLIC_KEY', ''),
+
+    /**
+     * API secret key for HMAC-SHA256 token validation (legacy v1).
      * Provided during onboarding from NextLib-Cloud.
      * Env: NEXTLIB_TOKEN_SECRET
      *
