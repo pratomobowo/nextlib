@@ -127,6 +127,7 @@ $plugin->register('custom_api_route', function ($router) use ($nextlib_config) {
     $router->map('POST', '/v1/nextlib/dead-stock',       'NextLibAgent\\Plugin@handleDeadStock');
     $router->map('POST', '/v1/nextlib/collection-stats', 'NextLibAgent\\Plugin@handleCollectionStats');
     $router->map('POST', '/v1/nextlib/member-activity',  'NextLibAgent\\Plugin@handleMemberActivity');
+    $router->map('POST', '/v1/nextlib/daily-aggregate', 'NextLibAgent\\Plugin@handleDailyAggregate');
 });
 
 // Touch the variable so PHP doesn't complain about unused-import
