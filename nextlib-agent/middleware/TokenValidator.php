@@ -16,7 +16,7 @@
  *
  * @package    NextLib-Agent
  * @subpackage Middleware
- * @version    1.0.0
+ * @version    2.1.0
  * @requires   PHP 7.4+
  */
 

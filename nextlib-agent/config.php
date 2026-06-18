@@ -12,7 +12,7 @@
  * protected by the INDEX_AUTH guard below and `.htaccess` defense-in-depth.
  *
  * @package    NextLib-Agent
- * @version    1.1.0
+ * @version    2.1.0
  * @see        Requirement 3.4 — secret key stored in non-web-accessible config
  */
 

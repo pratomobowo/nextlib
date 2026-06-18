@@ -5,13 +5,13 @@
  * Description: NextLib SaaS integration agent for SLiMS. Provides library analytics
  *              detail endpoints, member check, loan extension, and search-book
  *              functionality accessible via /api/v1/nextlib/* routes.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: NextLib Team
  * Author URI: https://nextlib.id
  * License: MIT
  *
  * @package    NextLib-Agent
- * @version    2.0.0
+ * @version    2.1.0
  * @requires   PHP 7.4+
  * @requires   SLiMS 9 Bulian or newer
  */

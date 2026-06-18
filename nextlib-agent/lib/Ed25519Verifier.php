@@ -14,7 +14,7 @@
  *
  * @package    NextLib-Agent
  * @subpackage Lib
- * @version    2.0.0
+ * @version    2.1.0
  * @requires   PHP 7.4+ with libsodium (sodium_crypto_sign_verify_detached)
  */
 

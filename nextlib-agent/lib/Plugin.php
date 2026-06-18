@@ -80,10 +80,12 @@ class Plugin
     }
 
     /**
-     * POST /api/v1/nextlib/handshake — Lightweight HMAC-verified ping.
+     * POST /api/v1/nextlib/handshake — Lightweight auth-verified ping.
      *
      * Returns tenant_id + version to confirm the agent and cloud agree on
-     * credentials, without performing any DB or HTTP work.
+     * credentials, without performing any DB or HTTP work. Accepts either
+     * Ed25519 (X-NextLib-Timestamp + X-NextLib-Signature) or legacy HMAC
+     * (X-NextLib-Token + X-NextLib-Secret-Hash) auth.
      */
     public function handleHandshake($params = [])
     {
@@ -91,7 +93,7 @@ class Plugin
             return [
                 'status' => 'ok',
                 'plugin' => 'nextlib-agent',
-                'version' => '1.0.0',
+                'version' => '2.1.0',
                 'tenant_id' => $this->config['tenant_id'],
             ];
         });
