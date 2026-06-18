@@ -23,6 +23,7 @@
             "endpoints/AgentCommand.php",
             "endpoints/Health.php",
             "endpoints/TopBooks.php",
+            "endpoints/DailyAggregate.php",
             "endpoints/DeadStock.php",
             "endpoints/CollectionStats.php",
             "endpoints/MemberActivity.php",
