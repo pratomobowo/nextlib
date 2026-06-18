@@ -28,6 +28,10 @@ export const tenants = pgTable("tenants", {
   ed25519RotatedAt: timestamp("ed25519_rotated_at", { withTimezone: true }),
   ed25519KeyId: text("ed25519_key_id"), // UUID, for audit
   status: varchar("status", { length: 20 }).default("pending").notNull(), // pending, connected, disconnected
+  // Pull-sync tracking (SaaS-side aggregator pulls daily aggregates from agent)
+  lastPullAt: timestamp("last_pull_at", { withTimezone: true }),
+  lastPullStatus: varchar("last_pull_status", { length: 20 }), // 'ok' | 'failed' | 'partial'
+  lastPullError: text("last_pull_error"), // truncated to 500 chars at write time
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

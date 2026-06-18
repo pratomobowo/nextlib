@@ -13,6 +13,9 @@ const mockTenant = {
   ed25519RotatedAt: null,
   ed25519KeyId: null,
   status: 'connected',
+  lastPullAt: null,
+  lastPullStatus: null,
+  lastPullError: null,
   createdAt: new Date('2024-01-01'),
   updatedAt: new Date('2024-01-01'),
 }

@@ -27,6 +27,7 @@
 import type { Worker } from "bullmq";
 import { createMessageWorker } from "@/lib/whatsapp/message-worker";
 import { createBackfillWorker } from "@/lib/backfill/backfill-worker";
+import { createScheduledPullWorker, ensureScheduledPullRegistered } from "@/lib/scheduler/scheduled-pull";
 
 /** Required env vars — fail loudly with a clear message before booting. */
 function assertEnv(): void {
@@ -68,6 +69,22 @@ async function main(): Promise<void> {
     workers.push({ name: "backfill", worker: createBackfillWorker() });
   } catch (err) {
     console.error("[Worker] Failed to start backfill worker:", err);
+    process.exit(1);
+  }
+
+  // Boot the scheduled-pull worker
+  try {
+    workers.push({ name: "scheduled-pull", worker: createScheduledPullWorker() });
+  } catch (err) {
+    console.error("[Worker] Failed to start scheduled-pull worker:", err);
+    process.exit(1);
+  }
+
+  // Register the daily pull schedule (idempotent — upsertJobScheduler dedups)
+  try {
+    await ensureScheduledPullRegistered();
+  } catch (err) {
+    console.error("[Worker] Failed to register scheduled pull schedule:", err);
     process.exit(1);
   }
 

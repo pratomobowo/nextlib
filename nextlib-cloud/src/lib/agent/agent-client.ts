@@ -136,6 +136,127 @@ export async function triggerAgentExport(
   }
 }
 
+/** Shape of one day in the response from the agent's daily-aggregate endpoint. */
+export interface DailyAggregateDay {
+  date: string;
+  daily_metrics: {
+    visitor_count: number;
+    unique_visitor_count: number;
+    loan_count: number;
+    return_count: number;
+    new_member_count: number;
+    new_biblio_count: number;
+    new_item_count: number;
+    fines_debet_total: number;
+    fines_credit_total: number;
+    reservation_count: number;
+  };
+  snapshot_metrics: {
+    total_collection_size: number;
+    active_member_count: number;
+    active_overdue_count: number;
+  };
+  anomaly_flags: string[];
+}
+
+export interface DailyAggregateResponse {
+  schema_version: "2.0";
+  start_date: string;
+  end_date: string;
+  days: DailyAggregateDay[];
+}
+
+export interface PullAgentResult {
+  success: boolean;
+  status: number;
+  days?: DailyAggregateDay[];
+  error?: string;
+}
+
+/** Per-call timeout for the pull. Generous because a 366-day range
+ *  requires the agent to do ~10 SQL queries + a date-series fill. */
+const PULL_TIMEOUT_MS = 60_000;
+
+/**
+ * Pull daily aggregate metrics for a date range from the agent.
+ *
+ * Replaces the old push-based `triggerAgentExport()` flow: instead of
+ * asking the agent to compute aggregates and POST them back, we call
+ * the agent's read-only /daily-aggregate endpoint and get the data
+ * directly. This means the plugin no longer needs its own SLiMS DB
+ * credentials.
+ *
+ * @param tenant        Tenant row (must have encrypted credentials)
+ * @param startDate     Inclusive YYYY-MM-DD
+ * @param endDate       Inclusive YYYY-MM-DD (range must be ≤ 366 days)
+ * @param encryptionKey AES-256 key for decrypting tenant credentials
+ */
+export async function pullAgentDailyAggregate(
+  tenant: Pick<Tenant, "slimsBaseUrl" | "apiSecretEncrypted">,
+  startDate: string,
+  endDate: string,
+  encryptionKey: string
+): Promise<PullAgentResult> {
+  // 1. Decrypt credentials
+  let slimsBaseUrl: string;
+  let apiSecret: string;
+  try {
+    slimsBaseUrl = decrypt(tenant.slimsBaseUrl, encryptionKey);
+    apiSecret = decrypt(tenant.apiSecretEncrypted, encryptionKey);
+  } catch {
+    return { success: false, status: 0, error: "Failed to decrypt tenant credentials" };
+  }
+
+  // 2. Build signed request
+  const body = JSON.stringify({ start_date: startDate, end_date: endDate });
+  const token = generateToken(body, apiSecret);
+  const secretHash = createHash("sha256").update(apiSecret).digest("hex");
+  const targetUrl = `${slimsBaseUrl.replace(/\/+$/, "")}/api/v1/nextlib/daily-aggregate`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-NextLib-Token": token,
+        "X-NextLib-Secret-Hash": secretHash,
+      },
+      body,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.status >= 200 && response.status < 300) {
+      const data = (await response.json()) as DailyAggregateResponse;
+      return { success: true, status: response.status, days: data.days };
+    }
+
+    let agentError = `Agent returned HTTP ${response.status}`;
+    try {
+      const errBody = (await response.json()) as { message?: string };
+      if (errBody.message) agentError = errBody.message;
+    } catch {
+      // not JSON
+    }
+    return { success: false, status: response.status, error: agentError };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      return {
+        success: false,
+        status: 0,
+        error: `Agent did not respond within ${PULL_TIMEOUT_MS / 1000}s`,
+      };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, status: 0, error: `Failed to reach agent: ${message}` };
+  }
+}
+
 /**
  * Per-call timeout for ad-hoc agent analytics queries. Shorter than the
  * export timeout because these are user-facing dashboard requests.

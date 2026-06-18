@@ -1,48 +1,30 @@
 import { Worker } from "bullmq";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { redisConnection } from "@/lib/whatsapp/message-queue";
 import { BACKFILL_QUEUE, type BackfillJobData } from "./backfill-queue";
 import { db } from "@/lib/db";
 import { backfillJobs, tenants } from "@/lib/db/schema";
-import { triggerAgentExport } from "@/lib/agent/agent-client";
+import { pullAgentDailyAggregate } from "@/lib/agent/agent-client";
+import { bulkUpsertDailyStatsV2, updateTenantPullStatus } from "@/lib/analytics/daily-stats-bulk";
 
 /**
- * BullMQ worker that drives a historical backfill by calling the agent's
- * `trigger_export` endpoint once per date in the requested range.
+ * BullMQ worker that drives historical backfill by pulling from
+ * the agent in 90-day chunks. Each chunk is one HTTP call to
+ * /api/v1/nextlib/daily-aggregate, then a single bulk upsert.
  *
  * Pipeline per job:
  *   1. Mark the `backfill_jobs` row as `running`.
- *   2. Iterate every date from dateStart to dateEnd (inclusive).
- *   3. For each date, POST trigger_export to the agent; the agent then runs
- *      its export logic and POSTs the v1/v2 payloads back to the cloud's
- *      aggregate endpoints (which handle 409 = already-imported as success).
- *   4. After each date, update processedDays / lastProcessedDate so the
- *      dashboard progress bar tracks in near-real-time.
- *   5. A failed date is recorded in failedDays + lastError but does NOT halt
- *      the run — the rest of the range is still attempted.
- *   6. Set status to `completed` (or `failed` if every date failed).
- *
- * Concurrency: BullMQ processes one backfill job at a time per worker
- * process; the dashboard should prevent enqueuing a second job for a tenant
- * that already has one running. The per-tenant rate limiter (below) keeps
- * the agent / SLiMS from being hammered.
+ *   2. Split [dateStart, dateEnd] into ≤90-day chunks.
+ *   3. For each chunk: pullAgentDailyAggregate → bulkUpsert.
+ *   4. Update processedDays / lastProcessedDate.
+ *   5. Cancelled jobs bail out cleanly.
+ *   6. Set status to `completed` (or `failed` if every chunk failed).
  */
 
-/** Cap parallel in-flight trigger_export calls per worker. */
 const CONCURRENCY = 1;
-
-/**
- * Pause between dates (ms). Keeps the agent's per-date SLiMS queries from
- * stacking up back-to-back. ~250ms is gentle yet still finishes 5 years of
- * daily data in well under an hour.
- */
-const PER_DATE_DELAY_MS = 250;
-
-/**
- * Update the progress row every N processed dates. Avoids writing to the DB
- * on every single date for large ranges.
- */
-const PROGRESS_FLUSH_EVERY = 5;
+const CHUNK_DAYS = 90;
+const PER_CHUNK_DELAY_MS = 250;
+const PROGRESS_FLUSH_EVERY = 1;
 
 export function createBackfillWorker(): Worker<BackfillJobData> {
   const worker = new Worker<BackfillJobData>(
@@ -57,7 +39,6 @@ export function createBackfillWorker(): Worker<BackfillJobData> {
         throw new Error("AES_256_ENCRYPTION_KEY is not configured");
       }
 
-      // Load tenant credentials
       const tenantRows = await db
         .select({
           slimsBaseUrl: tenants.slimsBaseUrl,
@@ -73,49 +54,73 @@ export function createBackfillWorker(): Worker<BackfillJobData> {
       }
       const tenant = tenantRows[0];
 
-      // Mark running
       await db
         .update(backfillJobs)
         .set({ status: "running", startedAt: new Date(), updatedAt: new Date() })
         .where(eq(backfillJobs.id, jobId));
 
-      // Build the list of dates to process
-      const dates = enumerateDates(dateStart, dateEnd);
-      let processed = 0;
-      let failed = 0;
+      const chunks = buildChunks(dateStart, dateEnd, CHUNK_DAYS);
+      let processedChunks = 0;
+      let failedChunks = 0;
+      let totalDaysImported = 0;
       let lastError: string | null = null;
       let lastProcessedDate: string | null = null;
 
-      for (const date of dates) {
-        // Honour cancellation: if status flipped to `cancelled` externally,
-        // stop processing and leave the row as-is.
+      for (const chunk of chunks) {
+        // Cancellation check
         const current = await db
           .select({ status: backfillJobs.status })
           .from(backfillJobs)
           .where(eq(backfillJobs.id, jobId))
           .limit(1);
         if (current[0]?.status === "cancelled") {
-          console.log(`[Backfill] Job ${jobId} cancelled at ${date}`);
+          console.log(`[Backfill] Job ${jobId} cancelled at ${chunk.start}`);
           break;
         }
 
-        const result = await triggerAgentExport(tenant, date, encryptionKey);
-        processed++;
-        if (!result.success) {
-          failed++;
-          lastError = result.error ?? `Failed for ${date}`;
-          console.warn(`[Backfill] ${jobId} ${date} failed: ${lastError}`);
-        } else {
-          lastProcessedDate = date;
+        try {
+          const result = await pullAgentDailyAggregate(tenant, chunk.start, chunk.end, encryptionKey);
+          if (!result.success || !result.days) {
+            failedChunks++;
+            lastError = result.error ?? `Failed for ${chunk.start}..${chunk.end}`;
+            console.warn(`[Backfill] ${jobId} ${chunk.start}..${chunk.end} failed: ${lastError}`);
+          } else {
+            if (result.days.length > 0) {
+              const upsertDays = result.days.map((d) => ({
+                date: d.date,
+                visitorCount: d.daily_metrics.visitor_count,
+                uniqueVisitorCount: d.daily_metrics.unique_visitor_count,
+                loanCount: d.daily_metrics.loan_count,
+                returnCount: d.daily_metrics.return_count,
+                newMemberCount: d.daily_metrics.new_member_count,
+                newBiblioCount: d.daily_metrics.new_biblio_count,
+                newItemCount: d.daily_metrics.new_item_count,
+                finesDebetTotal: d.daily_metrics.fines_debet_total,
+                finesCreditTotal: d.daily_metrics.fines_credit_total,
+                reservationCount: d.daily_metrics.reservation_count,
+                totalCollectionSize: d.snapshot_metrics.total_collection_size,
+                activeMemberCount: d.snapshot_metrics.active_member_count,
+                activeOverdueCount: d.snapshot_metrics.active_overdue_count,
+                anomalyFlags: d.anomaly_flags,
+              }));
+              const upsert = await bulkUpsertDailyStatsV2(tenantId, upsertDays);
+              totalDaysImported += upsert.rowsAffected;
+            }
+            lastProcessedDate = chunk.end;
+          }
+        } catch (err) {
+          failedChunks++;
+          lastError = err instanceof Error ? err.message : String(err);
+          console.error(`[Backfill] ${jobId} ${chunk.start}..${chunk.end} threw:`, lastError);
         }
 
-        // Flush progress periodically
-        if (processed % PROGRESS_FLUSH_EVERY === 0) {
+        processedChunks++;
+        if (processedChunks % PROGRESS_FLUSH_EVERY === 0) {
           await db
             .update(backfillJobs)
             .set({
-              processedDays: processed,
-              failedDays: failed,
+              processedDays: totalDaysImported,
+              failedDays: failedChunks,
               lastProcessedDate,
               lastError,
               updatedAt: new Date(),
@@ -123,20 +128,19 @@ export function createBackfillWorker(): Worker<BackfillJobData> {
             .where(eq(backfillJobs.id, jobId));
         }
 
-        // Gentle pacing
-        if (PER_DATE_DELAY_MS > 0) {
-          await sleep(PER_DATE_DELAY_MS);
+        if (PER_CHUNK_DELAY_MS > 0) {
+          await sleep(PER_CHUNK_DELAY_MS);
         }
       }
 
-      // Final flush + status
-      const finalStatus = failed === processed && processed > 0 ? "failed" : "completed";
+      const finalStatus = failedChunks === processedChunks && processedChunks > 0 ? "failed" : "completed";
+      await updateTenantPullStatus(tenantId, finalStatus === "completed" ? "ok" : "partial", lastError ?? undefined);
       await db
         .update(backfillJobs)
         .set({
           status: finalStatus,
-          processedDays: processed,
-          failedDays: failed,
+          processedDays: totalDaysImported,
+          failedDays: failedChunks,
           lastProcessedDate,
           lastError,
           completedAt: new Date(),
@@ -145,48 +149,48 @@ export function createBackfillWorker(): Worker<BackfillJobData> {
         .where(eq(backfillJobs.id, jobId));
 
       console.log(
-        `[Backfill] Job ${jobId} done: status=${finalStatus} processed=${processed} failed=${failed}`
+        `[Backfill] Job ${jobId} done: status=${finalStatus} imported=${totalDaysImported} failedChunks=${failedChunks}`
       );
     },
     {
       connection: redisConnection,
       concurrency: CONCURRENCY,
-      limiter: {
-        // Max 4 backfill iterations per 5s — keeps the agent breathing room.
-        max: 4,
-        duration: 5000,
-      },
+      limiter: { max: 4, duration: 5000 },
     }
   );
 
-  worker.on("completed", (job) => {
-    console.log(`[Backfill] Job ${job.id} completed`);
-  });
-
-  worker.on("failed", (job, err) => {
-    console.error(`[Backfill] Job ${job?.id} failed:`, err.message);
-  });
-
-  worker.on("error", (err) => {
-    console.error("[Backfill] Worker error:", err);
-  });
+  worker.on("completed", (job) => console.log(`[Backfill] Job ${job.id} completed`));
+  worker.on("failed", (job, err) => console.error(`[Backfill] Job ${job?.id} failed:`, err.message));
+  worker.on("error", (err) => console.error("[Backfill] Worker error:", err));
 
   console.log("[Backfill] Backfill worker started");
   return worker;
 }
 
-/** Helper: enumerate every YYYY-MM-DD between start and end (inclusive). */
-function enumerateDates(start: string, end: string): string[] {
-  const out: string[] = [];
+interface ChunkRange {
+  start: string;
+  end: string;
+}
+
+function buildChunks(start: string, end: string, chunkDays: number): ChunkRange[] {
+  const out: ChunkRange[] = [];
   const s = new Date(start + "T00:00:00Z");
   const e = new Date(end + "T00:00:00Z");
-  for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
-    out.push(d.toISOString().slice(0, 10));
+  let cursor = new Date(s);
+  while (cursor <= e) {
+    const chunkEnd = new Date(cursor);
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + chunkDays - 1);
+    if (chunkEnd > e) chunkEnd.setTime(e.getTime());
+    out.push({
+      start: cursor.toISOString().slice(0, 10),
+      end: chunkEnd.toISOString().slice(0, 10),
+    });
+    cursor = new Date(chunkEnd);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return out;
 }
 
-/** Helper: mark a job as failed in the DB. */
 async function markFailed(jobId: string, message: string): Promise<void> {
   await db
     .update(backfillJobs)

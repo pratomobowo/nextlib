@@ -25,6 +25,7 @@ namespace NextLibAgent;
 
 use NextLibAgent\endpoints\AgentCommand;
 use NextLibAgent\endpoints\CollectionStats;
+use NextLibAgent\endpoints\DailyAggregate;
 use NextLibAgent\endpoints\DeadStock;
 use NextLibAgent\endpoints\ExtendBook;
 use NextLibAgent\endpoints\Health;
@@ -191,6 +192,24 @@ class Plugin
         $this->withHmac(function ($body) {
             $requestData = $this->parseBody($body);
             $endpoint = new MemberActivity($this->db);
+            return $endpoint->handle($requestData);
+        });
+    }
+
+    /**
+     * POST /api/v1/nextlib/daily-aggregate — Daily metrics for a date range.
+     *
+     * Returns v1/v2 schema daily metrics (visitor/loan counts, new
+     * member/biblio/item counts) for the requested window, plus a
+     * snapshot of cumulative collection size and active members as of
+     * the end date. Used by NextLib-Cloud to backfill historical days
+     * and to power the per-day charts on the SaaS dashboard.
+     */
+    public function handleDailyAggregate($params = [])
+    {
+        $this->withHmac(function ($body) {
+            $requestData = $this->parseBody($body);
+            $endpoint = new DailyAggregate($this->db);
             return $endpoint->handle($requestData);
         });
     }
