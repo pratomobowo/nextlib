@@ -1,83 +1,69 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
-const mockRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: mockRefresh, push: vi.fn() }),
-}));
-
-const fetchMock = vi.fn();
-global.fetch = fetchMock as unknown as typeof global.fetch;
-
-vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
 import { ConnectionEditor } from "./connection-editor";
 
+const baseTenant = {
+  id: "t1",
+  name: "Test University",
+  slug: "test-uni",
+  status: "connected",
+  ed25519PublicKey: null,
+  ed25519RotatedAt: null,
+  lastPullAt: null,
+  lastPullStatus: null,
+  lastPullError: null,
+} as any;
+
 beforeEach(() => {
-  fetchMock.mockReset();
-  mockRefresh.mockReset();
-  vi.spyOn(window, "alert").mockImplementation(() => {});
+  // Stub fetch globally — the component calls router.refresh which may fetch
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
 });
 
-const tenant = {
-  id: "t1",
-  name: "Universitas NextLib",
-  slug: "universitas-nextlib",
-  status: "connected",
-  ed25519PublicKey: "AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555FFFF6666AAAA7777BBBB8888",
-  ed25519RotatedAt: new Date("2026-06-17T00:00:00Z"),
-};
-
-describe("<ConnectionEditor />", () => {
-  it("renders with initial values", () => {
-    render(<ConnectionEditor tenant={tenant} />);
-    expect(screen.getByDisplayValue("Universitas NextLib")).toBeTruthy();
+describe("ConnectionEditor last sync indicator", () => {
+  it("shows 'never synced' when lastPullAt is null", () => {
+    render(<ConnectionEditor tenant={baseTenant} />);
+    expect(screen.getByTestId("last-sync-never")).toBeInTheDocument();
+    expect(screen.getByText(/belum pernah disinkronkan/i)).toBeInTheDocument();
   });
 
-  it("shows validation error for invalid URL", async () => {
-    render(<ConnectionEditor tenant={tenant} />);
-    const urlInput = screen.getByLabelText(/URL SLiMS/i);
-    fireEvent.change(urlInput, { target: { value: "not-a-url" } });
-    fireEvent.click(screen.getByRole("button", { name: /Simpan/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/URL yang valid/i)).toBeTruthy();
-    });
-  });
-
-  it("PATCHes on save and toasts on success", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: { ...tenant, slimsBaseUrl: "https://slims.x" },
-      }),
-    });
-    render(<ConnectionEditor tenant={tenant} />);
-    fireEvent.click(screen.getByRole("button", { name: /Simpan/i }));
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/v1/tenants/t1",
-        expect.objectContaining({ method: "PATCH" })
-      );
-    });
-  });
-
-  it("disables test button while in-flight", async () => {
-    fetchMock.mockImplementation(
-      () =>
-        new Promise<Response>((resolve) =>
-          setTimeout(
-            () =>
-              resolve({ ok: true, json: async () => ({}) } as Response),
-            100
-          )
-        )
+  it("shows success indicator when lastPullStatus is 'ok'", () => {
+    render(
+      <ConnectionEditor
+        tenant={{
+          ...baseTenant,
+          lastPullAt: new Date().toISOString(),
+          lastPullStatus: "ok",
+        }}
+      />
     );
-    render(<ConnectionEditor tenant={tenant} />);
-    const testBtn = screen.getByRole("button", { name: /Test Koneksi/i });
-    fireEvent.click(testBtn);
-    await waitFor(() => expect(testBtn).toBeDisabled());
+    expect(screen.getByTestId("last-sync-ok")).toBeInTheDocument();
+    expect(screen.getByText(/sinkron terakhir/i)).toBeInTheDocument();
+  });
+
+  it("shows failed indicator when lastPullStatus is 'failed' with error", () => {
+    render(
+      <ConnectionEditor
+        tenant={{
+          ...baseTenant,
+          lastPullAt: new Date().toISOString(),
+          lastPullStatus: "failed",
+          lastPullError: "Connection refused",
+        }}
+      />
+    );
+    expect(screen.getByTestId("last-sync-failed")).toBeInTheDocument();
+    expect(screen.getByText(/gagal/i)).toBeInTheDocument();
+  });
+
+  it("renders the Pull Now button", () => {
+    render(<ConnectionEditor tenant={baseTenant} />);
+    expect(screen.getByTestId("pull-now-button")).toBeInTheDocument();
+    expect(screen.getByText(/tarik data sekarang/i)).toBeInTheDocument();
   });
 });

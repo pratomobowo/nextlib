@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v4";
+import { formatDistanceToNow } from "date-fns";
+import { id as idLocale } from "date-fns/locale";
+import { RefreshCw, CheckCircle2, AlertCircle, Clock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,12 +43,49 @@ type Tenant = {
   status: string;
   ed25519PublicKey: string | null;
   ed25519RotatedAt: string | Date | null;
+  lastPullAt: string | Date | null;
+  lastPullStatus: string | null;
+  lastPullError: string | null;
 };
 
 export function ConnectionEditor({ tenant }: { tenant: Tenant }) {
   const router = useRouter();
   const [regenOpen, setRegenOpen] = useState(false);
   const [rotating, setRotating] = useState(false);
+  const [pullPending, setPullPending] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [pullResult, setPullResult] = useState<{ days_imported: number } | null>(null);
+
+  const handlePullNow = async () => {
+    setPullPending(true);
+    setPullError(null);
+    setPullResult(null);
+    try {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 29);
+      const res = await fetch(`/api/v1/tenants/${tenant.id}/pull-now`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start_date: start.toISOString().slice(0, 10),
+          end_date: end.toISOString().slice(0, 10),
+          mode: "immediate",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setPullResult(data);
+      setTimeout(() => router.refresh(), 1000);
+    } catch (err) {
+      setPullError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPullPending(false);
+    }
+  };
 
   const {
     register,
@@ -249,6 +289,48 @@ export function ConnectionEditor({ tenant }: { tenant: Tenant }) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Sinkronisasi Data Harian</CardTitle>
+          <CardDescription>
+            SaaS menarik data harian (loan, visitor, dll) dari agent setiap
+            hari jam 02:00 UTC. Anda juga bisa menarik manual di bawah.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <LastSyncIndicator
+              lastPullAt={tenant.lastPullAt}
+              lastPullStatus={tenant.lastPullStatus}
+              lastPullError={tenant.lastPullError}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePullNow}
+              disabled={pullPending}
+              data-testid="pull-now-button"
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${pullPending ? "animate-spin" : ""}`}
+              />
+              {pullPending ? "Menarik data..." : "Tarik Data Sekarang"}
+            </Button>
+          </div>
+          {pullError && (
+            <p className="mt-2 text-sm text-red-600" data-testid="pull-error">
+              Error: {pullError}
+            </p>
+          )}
+          {pullResult && (
+            <p className="mt-2 text-sm text-green-600" data-testid="pull-success">
+              Berhasil menarik {pullResult.days_imported} hari data.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <RegenerateSecretModal
         open={regenOpen}
         onOpenChange={setRegenOpen}
@@ -270,4 +352,53 @@ function StatusBadge({ status }: { status: string }) {
     return <Badge variant="destructive">Disconnected</Badge>;
   }
   return <Badge variant="secondary">Pending</Badge>;
+}
+
+function LastSyncIndicator({
+  lastPullAt,
+  lastPullStatus,
+  lastPullError,
+}: {
+  lastPullAt: string | Date | null;
+  lastPullStatus: string | null;
+  lastPullError: string | null;
+}) {
+  if (!lastPullAt) {
+    return (
+      <div
+        className="flex items-center gap-2 text-sm text-muted-foreground"
+        data-testid="last-sync-never"
+      >
+        <Clock className="h-4 w-4" />
+        <span>Belum pernah disinkronkan</span>
+      </div>
+    );
+  }
+  const ago = formatDistanceToNow(new Date(lastPullAt), {
+    addSuffix: true,
+    locale: idLocale,
+  });
+  if (lastPullStatus === "ok") {
+    return (
+      <div
+        className="flex items-center gap-2 text-sm text-green-600"
+        data-testid="last-sync-ok"
+      >
+        <CheckCircle2 className="h-4 w-4" />
+        <span>Sinkron terakhir {ago}</span>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="flex items-center gap-2 text-sm text-amber-600"
+      data-testid="last-sync-failed"
+    >
+      <AlertCircle className="h-4 w-4" />
+      <span>
+        Sinkron terakhir {ago} gagal
+        {lastPullError ? `: ${lastPullError}` : ""}
+      </span>
+    </div>
+  );
 }

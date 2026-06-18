@@ -25,6 +25,9 @@ export default async function KoneksiPage() {
       updatedAt: tenants.updatedAt,
       ed25519PublicKey: tenants.ed25519PublicKey,
       ed25519RotatedAt: tenants.ed25519RotatedAt,
+      lastPullAt: tenants.lastPullAt,
+      lastPullStatus: tenants.lastPullStatus,
+      lastPullError: tenants.lastPullError,
     })
     .from(tenants)
     .orderBy(desc(tenants.updatedAt))
@@ -51,6 +54,9 @@ export default async function KoneksiPage() {
             status: allTenants[0].status,
             ed25519PublicKey: allTenants[0].ed25519PublicKey,
             ed25519RotatedAt: allTenants[0].ed25519RotatedAt,
+            lastPullAt: allTenants[0].lastPullAt,
+            lastPullStatus: allTenants[0].lastPullStatus,
+            lastPullError: allTenants[0].lastPullError,
           }}
         />
       </div>
